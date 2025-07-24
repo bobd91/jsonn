@@ -2,28 +2,27 @@
 
 #include "jsonn.h"
 #include "values.h"
-#include "utf8.h"
 
 int ignore_comments = 0;
 int ignore_trailing_commas = 0;
 int replace_illformed_utf8 = 0;
 
-static void consume_line_comment() {
-  while(current_byte < last_byte && '\r' != *current_byte && '\n' != *current_byte)
-    current_byte++;
+static void consume_line_comment(jsonn_parser p) {
+  while(p->current < p->last && '\r' != *p->current && '\n' != *p->current)
+    p->current++;
 }
 
-static void consume_block_comment() {
+static void consume_block_comment(jsonn_parser p) {
   while(1) {
-    while(current_byte < last_byte && '*' != *current_byte)
-      current_byte++;
-    if('/' == *current_byte) return;
+    while(p->current < p->last && '*' != *p->current)
+      p->current;
+    if('/' == *p->current) return;
   }
 }
 
-static void consume_whitespace() {
-  while(current_byte < last_byte) {
-    switch(*current_byte) {
+static void consume_whitespace(jsonn_parser p) {
+  while(p->current < p->last) {
+    switch(*p->current) {
     case ' ':
     case '\n':
     case '\r':
@@ -32,15 +31,15 @@ static void consume_whitespace() {
     case '/':
       if(!ignore_comments) return;
 
-      char next_byte = *(1 + current_byte); // safe as we are null terminated
+      char next_byte = *(1 + p->current); // safe as we are null terminated
       switch(next_byte) {
       case '/':
-        current_byte += 2;
-        consume_line_comment();
+        p->current += 2;
+        consume_line_comment(p);
         break;
       case '*':
-        current_byte += 2;
-        consume_block_comment();
+        p->current += 2;
+        consume_block_comment(p);
         break;
       default:
         return;
@@ -48,18 +47,18 @@ static void consume_whitespace() {
     default:
         return;
     }
-    current_byte++;
+    p->current++;
   }
 }
 
-static int skip_sequence(uint8_t *sequence) {
-  uint8_t *s = current_byte;
+static int skip_sequence(jsonn_parser p, uint8_t *sequence) {
+  uint8_t *s = p->current;
   while(*sequence && *s++ == *sequence++)
     ;
 
   if(*sequence) return 0;
 
-  current_byte = s;
+  p->current = s;
   return 1
 }
 

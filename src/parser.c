@@ -4,205 +4,104 @@
 #include <string.h>
 
 #include "jsonn.h"
+#include "strings.h"
+#include "numbers.h"
 
-#define JSONN_BUFFER_PARSER 0
-#define JSONN_STREAM_PARSER 1
+typedef enum {
+  // Don't change these two values as the bit values are used for nesting
+  JSONN_OBJECT_MEMBER_OPTIONAL = 0,
+  JSONN_ARRAY_VALUE_OPTIONAL = 1,
+  JSONN_OBJECT_MEMBER,
+  JSONN_ARRAY_VALUE,
+  JSONN_OBJECT_MEMBER_SEPARATOR,
+  JSONN_OBJECT_NAME_SEPARATOR,
+  JSONN_OBJECT_MEMBER_VALUE,
+  JSONN_OBJECT_TERMINATOR,
+  JSONN_ARRAY_TERMINATOR,
+  JSONN_ARRAY_VALUE_SEPARATOR,
+  JSONN_VALUE,
+  JSONN_VALUE_NEXT,
+  JSONN_NAME,
+  JSONN_NAME_NEXT,
+  JSONN_ERROR
+} jsonn_next;
 
-void *(*jsonn_alloc)(size_t) = malloc;
-void (*jsonn_dealloc)(void *) = free;
+jsonn_next next;
+  
 
-void jsonn_set_allocator(void *(malloc)(size_t), void (*free)(void *)) {
-  jsonn_alloc = malloc;
-  jsonn_dealloc = free;
+#define MAX_NESTING 1024
+char nest_stack[MAX_NESTING / 8];
+int nest_level;
+int nest_max = MAX_NESTING;
+
+char *input_bytes;
+char *last_byte;
+char *current_byte;
+char *write_byte;
+
+jsonn_next pop_next() {
+  if(--nest_level < 0) return JSONN_ERROR;
+  int next = 0x01 & nest_stack[nest_level >> 3] >> (nest_level & 0x07);
+  return next;
 }
 
-static jsonn_new(uint8_t *config) {
-  jsonn_config c = read_config(config);
-  if(!c)
-    return NULL;
-
-  size_t struct_size = sizeof(jsonn_context);
-  p = jsonn_alloc(struct_size + c.stack_size + c.buffersize);
-  if(!p)
-    return NULL;
-
-  p->flags = c.flags;
-  p->stack_max = 8 * c.stack_size;
-  p->stack = p + struct_size + buffersize;
-
-  return p;
+jsonn_next push_next(jsonn_next next) {
+  // Only allow JSONN_[OBJECT|ARRAY]_VALUE_OPTIONAL   
+  assert(!next >> 1);
+  if(nest_level >= nest_max) return JSONN_ERROR;
+  nest_stack[nest_level >> 3] |= next << (nest_level & 0x07);
+  nest_level++;
+  return next;
 }
 
-void jsonn_free(jsonn_parser p) {
-  jsonn_dealloc(p);
+int jsonn_parse_init(char *input_buf, unsigned input_max) {
+  input_bytes = input_buf;
+  current_byte = input_bytes;
+  last_byte = input_bytes + input_max;
+  *last_byte = '\0'; // Allows us to test 2 characters without worrying about end of buffer
+
+  consume_bom(); // unlikely but JSON spec says it may be there and should be ignored
 }
 
-jsonn_parser jsonn_buffer_parser(uint8_t *config) {
-  jsonn_config c = jsonn_config_parse(config);
-  if(!c)
-    return NULL;
-
-  jsonn_parser p = jsonn_new(c);
-  if(!p)
-    return NULL;
-
-  p->type = JSONN_BUFFER_PARSER;
-  return p;
-}
-
-jsonn_parser jsonn_stream_parser(uint8_t *config) {
-  jsonn_config c = read_config(config);
-  if(!c)
-    return NULL;
-
-  jsonn_parser p = jsonn_new(c);
-  if(!p)
-    return NULL;
-
-  p->type = JSONN_STREAM_PARSER;
-  p->start = p + sizeof(jsonn_context);
-  p->last = p->start + c.buffersize;
-  *p->last = '\0';
-
-  return p;
-}
-
-static void jsonn_init_common(jsonn_parser p) {
-  p->current = p->start;
-  p->stack_pointer = 0;
-
-  consume_bom();
-}
-
-int jsonn_init_buffer(jsonn_parser p, uint8_t *buf, size_t length) {
-  if(p->type != JSONN_BUFFER_PARSER)
-    return -1;
-
-  p->start = p->current = buf;
-  p->last = buf + length;
-  *p->last = '\0';
-
-  jsonn_init_common(p);
-  return 0;
-}
-
-int jsonn_init_stream(jsonn_parser p, FILE *stream) {
-  if(p->type != JSONN_STREAM_PARSER)
-    return -1;
-
-  p->stream = stream;
-
-  jsonn_init_common(p);
-  return 0;
-}
-
-jsonn_type jsson_next(jsonn_parser p, jsonn_result *result) {
-  return jsonn_parse_next(p, result);
-}
-
-jsonn_type jsson_callback(
-    jsonn_parser p, 
-    jsonn_callbacks callbacks, 
-    jsonn_result *result) {
-  jsonn_type type;
-  while(JSONN_EOF != (type = jsson_parse_next(p, result))) {
-    switch(type) {
-    case JSONN_FALSE:
-    case JSONN_NULL:
-    case JSONN_TRUE:
-      res = callbacks->j_literal(p, type);
-      break;
-
-    case JSONN_LONG:
-      res = callbacks->j_long(p, result->is.long_number);
-      break;
-
-    case JSONN_DOUBLE:
-      res = callbacks->j_double(p, result->is.double_number);
-      break;
-
-    case JSONN_STRING:
-      res = callbacks->j_string(p, result->is.string);
-      break;
-
-    case JSONN_NAME:
-      res = callbacks->j_name(p, result->is.string);
-      break;
-
-    case JSONN_BEGIN_ARRAY:
-      res = callbacks->j_begin_array(p);
-      break;
-
-    case JSONN_END_ARRAY:
-      res = callbacks->j_end_array(p);
-      break;
-
-    case JSONN_BEGIN_OBJECT:
-      res = callbacks->j_begin_object(p);
-      break;
-
-    case JSONN_END_OBJECT:
-      res = callbacks->j_end_object(p);
-      break;
-
-    case JSONN_UNEXPECTED:
-      res = callbacks->j_unexpected(p, result->is.error);
-      break;
-
-    default:
-      res = -1;
-      
-    }
-    if(res = -1)
-      return JSONN_UNEXPECTED;
-  }
-
-  return JSONN_EOF;
-}
-
-
-
-
-jsonn_type begin_object(jsonn_parser p) {
-  p->current++;
+jsonn_type begin_object() {
+  current_byte++;
   if(push_next(JSONN_OBJECT_MEMBER_OPTIONAL) < 0) return JSONN_UNEXPECTED;
   return JSONN_BEGIN_OBJECT;
 }
 
-jsonn_type end_object(jsonn_parser p) {
-  p->current++;
+jsonn_type end_object() {
+  current_byte++;
   if(pop_next() < 0) return JSONN_UNEXPECTED;
   return JSONN_END_OBJECT;
 }
 
-jsonn_type begin_array(jsonn_parser p) {
-  p->current++;
+jsonn_type begin_array() {
+  current_byte++;
   if(push_next(JSONN_ARRAY_VALUE_OPTIONAL) < 0) return JSONN_UNEXPECTED;
   return JSONN_BEGIN_ARRAY;
 }
 
-jsonn_type end_array(jsonn_parser p) {
-  p->current++;
+jsonn_type end_array() {
+  current_byte++;
   if(pop_next() < 0) return JSONN_UNEXPECTED;
   return JSONN_END_ARRAY;
 }
 
-jsonn_type parse_literal(jsonn_parser p, char *literal, jsonn_type type) {
+jsonn_type parse_literal(char *literal, jsonn_type type) {
   // Already matched first character of literal to get here so we can skip that one
-  jsonn_stream_buffer(p, strlen(literal));
   char *s1 = literal;
-  char *s2 = p->current
+  char *s2 = current_byte;
   while(*++s1 == *++s2 && *s1)
     ;
   // If we are at the null at the end of literal then we found it
   if(!*s1) {
-    p->current = s2;
+    current_byte = s2;
     return type;
   }
   return JSONN_UNEXPECTED;
 }
 
-jsonn_type parse_value(jsonn_parser p, jsonn_value *result) {
+jsonn_type parse_value(jsonn_value *result) {
   if(current_byte < last_byte) {
     char this_byte = *current_byte;
     switch(this_byte) {
@@ -311,7 +210,7 @@ int is_value(jsonn_type type) {
     || type == JSONN_STRING;
 }
 
-jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result) {
+jsonn_type jsonn_parse_next(jsonn_value *result) {
   jsonn_type ret;
   while(1) {
     consume_whitespace();

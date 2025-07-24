@@ -5,7 +5,7 @@
  * utf8.c
  *   validating UTF-8 sequences in JSON strings
  *   encoding Unicode codepoints into valid UTF-8 byte sequences
- *   identifying UTF-16 surrogare pairs and converting to codepoint
+ *   identifying UTF-16 surrogare pairs and converting to codepoints
  */
 
 #include <stdint.h>
