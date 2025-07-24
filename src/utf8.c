@@ -9,10 +9,11 @@
  */
 
 #include <stdint.h>
-#include <utf.h>
+
+#define REPLACEMENT_CHARACTER "\xEF\xBD\xBD"
+int replacement_length = 3;
 
 #define BYTE_ORDER_MARK "\xEF\xBB\xBF"
-#define REPLACEMENT_CHARACTER "\xEF\xBD\xBD"
 
 #define SURROGATE_MIN           0xD800
 #define SURROGATE_MAX           0xDFFF
@@ -59,55 +60,6 @@ static int is_surrogate(int cp) {
 
 static int is_valid_codepoint(int cp) {
   return cp <= CODEPOINT_MAX && !is_surrogate(cp);
-}
-
-/*
- * Returns non-zero if the next three bytes are the utf-8 byte order mark
- */
-int is_bom(const uint8_t *utf8) {
-  return BYTE_ORDER_MARK[0] == utf8[0]
-      && BYTE_ORDER_MARK[1] == utf8[1]
-      && BYTE_ORDER_MARK[2] == utf8[2];
-}
-
-/*
- * Writes the utf-8 sequence for the Unicode replacement character to the output buffer
- * Returns the number of bytes written (always 3)
- */
- int write_replacement_character(uint8_t *utf8_output) {
-  uint8_t *write_bytes = utf8_output;
-  *write_byte++ = REPLACEMENT_CHARACTER[0];
-  *write_byte++ = REPLACEMENT_CHARACTER[1];
-  *write_byte++ = REPLACEMENT_CHARACTER[2];
-  return 3;
-}
-
-
-/*
- * Combines a valid utf16 surrogate pair into a valid Unicode codepoint
- */
-int surrogate_pair_to_codepoint(int u1, int u2) {
-  // Codes from other planes as UTF16 surrogate pair
-  // 110110yyyyyyyyyy 110111xxxxxxxxxx => 0x10000 + yyyyyyyyyyxxxxxxxxxx
-  return SURROGATE_OFFSET 
-      + ((SURROGATE_LO_BITS(u1) << 10) 
-      + SURROGATE_LO_BITS(u2);
-}
-
-/*
- * Returns non-zero if the supplied utf-16 is valid
- * as the first item of a surrogate pair  
- */
-int is_first_surrogate(uint16_t utf16) {
-  return IS_1ST_SURROGATE();
-}
-
-/*
- * Returns non-zero if the supplied utf-16 is valid
- * as the second item of a surrogate pair  
- */
-int is_second_surrogate(uint16_t byte) {
-  return IS_2ND_SURROGATE(byte);
 }
 
 /*
@@ -211,4 +163,51 @@ int write_utf8_sequence(const int8_t* utf8, int8_t *utf8_output) {
   return count;
 }
 
+/*
+ * Writes the utf-8 sequence for the Unicode replacement character to the output buffer
+ * Returns the number of bytes written (always 3)
+ */
+ int write_replacement_character(uint8_t *utf8_output) {
+  uint8_t *write_bytes = utf8_output;
+  *write_byte++ = REPLACEMENT_CHARACTER[0];
+  *write_byte++ = REPLACEMENT_CHARACTER[1];
+  *write_byte++ = REPLACEMENT_CHARACTER[2];
+  return 3;
+}
+
+/*
+ * Returns non-zero if the next three bytes are the utf-8 byte order mark
+ */
+int is_bom(const uint8_t *utf8) {
+  return BYTE_ORDER_MARK[0] == utf8[0]
+      && BYTE_ORDER_MARK[1] == utf8[1]
+      && BYTE_ORDER_MARK[2] == utf8[2];
+}
+
+/*
+ * Returns non-zero if the supplied utf-16 is valid
+ * as the first item of a surrogate pair  
+ */
+int is_first_surrogate(uint16_t utf16) {
+  return IS_1ST_SURROGATE();
+}
+
+/*
+ * Returns non-zero if the supplied utf-16 is valid
+ * as the second item of a surrogate pair  
+ */
+int is_second_surrogate(uint16_t byte) {
+  return IS_2ND_SURROGATE(byte);
+}
+
+/*
+ * Combines a valid utf16 surrogate pair into a valid Unicode codepoint
+ */
+int surrogate_pair_to_codepoint(int u1, int u2) {
+  // Codes from other planes as UTF16 surrogate pair
+  // 110110yyyyyyyyyy 110111xxxxxxxxxx => 0x10000 + yyyyyyyyyyxxxxxxxxxx
+  return SURROGATE_OFFSET 
+      + ((SURROGATE_LO_BITS(u1) << 10) 
+      + SURROGATE_LO_BITS(u2);
+}
 

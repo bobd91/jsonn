@@ -4,23 +4,16 @@
 #include "values.h"
 #include "utf8.h"
 
-// TODO:
-// distinguish between unicode that has been encoded in the utf-8 byte stream#
-// and that encoded in \uXXXX escapes as the validation is different
-// we encode the \uXXXX so can enfore the correct rules
-// the byte sequences in the utf-8 could be anything!
-//
-// Also, tidy/consisent naming/consistent returns etc
 int ignore_comments = 0;
 int ignore_trailing_commas = 0;
-int replace_illegal_utf8 = 0;
+int replace_illformed_utf8 = 0;
 
-void consume_line_comment() {
+static void consume_line_comment() {
   while(current_byte < last_byte && '\r' != *current_byte && '\n' != *current_byte)
     current_byte++;
 }
 
-void consume_block_comment() {
+static void consume_block_comment() {
   while(1) {
     while(current_byte < last_byte && '*' != *current_byte)
       current_byte++;
@@ -28,7 +21,7 @@ void consume_block_comment() {
   }
 }
 
-void consume_whitespace() {
+static void consume_whitespace() {
   while(current_byte < last_byte) {
     switch(*current_byte) {
     case ' ':
@@ -59,7 +52,7 @@ void consume_whitespace() {
   }
 }
 
-int skip_sequence(uint8_t *sequence) {
+static int skip_sequence(uint8_t *sequence) {
   uint8_t *s = current_byte;
   while(*sequence && *s++ == *sequence++)
     ;
@@ -70,24 +63,26 @@ int skip_sequence(uint8_t *sequence) {
   return 1
 }
 
-void write_byte(uint8_t byte) {
+// TODO
+// do we really want this?
+// have to pass in two pointers and modify one (or return length)
+static void accept_byte(uint8_t byte) {
   *write_byte++ = byte;
   current_byte++;
 }
 
-int parse_unicode_escapes() {
-  // could have a single unicode (non surrogate)
-  // or a surrogate pair
-  // so we may have to do some looking ahead ...
-
-  // We are at the start of a 4 character hex sequence
+// Parse XXXX of \uXXXX sequence into a Unicode codepoint
+//
+// If it finds a UTF-16 first surrogate then look ahead for a \uXXXX 
+// that is a second surrogate and convert the two surrogates into a codepoint
+//
+// Returns -1 on invalid input
+static int parse_unicode_escapes() {
   int u = parse_4hexdig();
   if(u < 0) 
-    return 0;
+    return -1;
 
   if(is_first_surrogate(u)) {
-    // look ahead to see if we have a surrogate pair
-    // if not we must reset the current byte
     uint8_t *m = current_byte;
     int u2 = skip_sequence("\\u") ? parse_4hexdig() : -1;
     if(is_second_surrogate(u2)) {
@@ -100,7 +95,9 @@ int parse_unicode_escapes() {
   return u;
 }
 
-int parse_4hexdig() {
+// Parse four hex digits [0-9, a-f, A_F]
+// Returns the integer value or -1 on invalid input
+static int parse_4hexdig() {
   int value = 0;
   char *value_byte = current_byte;
   for(int i = 0 ; i < 4 ; i++) {
@@ -121,43 +118,33 @@ int parse_4hexdig() {
   return value;
 }
 
-jsonn_type long_result(long long_value, jsonn_result *result) {
+static jsonn_type long_result(long long_value, jsonn_result *result) {
   result->value_type = JSONN_LONG_VALUE;
   result->value.is.long_value = long_value;
   return JSONN_LONG;
 }
 
-jsonn_type double_result(double double_value, jsonn_result *result) {
+static jsonn_type double_result(double double_value, jsonn_result *result) {
   result->value_type = JSONN_DOUBLE_VALUE;
   result->value.is.double_value = double_value;
   return JSONN_DOUBLE;
 }
 
-jsonn_type string_result(utf8_t *string_value, int string_length, jsonn_result *result) {
+static jsonn_type string_result(utf8_t *string_value, int string_length, jsonn_result *result) {
   result->value_type = JSONN_STRING_VALUE;
   result->value.is.string_value = string_value;
   result->value.info = string_length;
   return JSONN_STRING;
 }
 
-// parse_name doesn't know if it has opening " whereas parse_string does
-// so we have to check
-// TODO: inconsistent interface
+/*
+ * Same as parse_string except on success it returns JSONN_NAME
+ */
 jsonn_type parse_name(jsonn_value *result) {
-  if('"' == *current_byte) {
-    return parse_string(result);
-  }
-  return JSONN_UNEXPECTED;
-}
-
-
-int can_replace_illformed_utf8() {
-  if(replace_illformed_sequence && room_for_replacement()) {
-    write_replacement_character();
-    return 1;
-  } else {
-    return 0;
-  }
+  jsonn_type type = parse_string(result);
+  return (type == JSONN_STRING) 
+      ? JSONN_NAME
+      : JSONN_UNEXPECTED;
 }
 
 /*
@@ -191,6 +178,11 @@ jsonn_type parse_string(int8_t *utf8, size_t count, jsonn_result *result) {
   int8_t *write_byte = utf8;
   int8_t *last_byte = utf8 + count;
   int illformed_utf8 = 0;
+
+  if('"' != *current_byte)
+    return JSONN_UNEXPECTED;
+
+  current_byte++;
 
   // Skip leading ascii
   while(0x20 < *current_byte
@@ -239,9 +231,16 @@ jsonn_type parse_string(int8_t *utf8, size_t count, jsonn_result *result) {
         break;
 
       case 'u':
-        // \uXXXX [\uXXXX]
-        current_byte++;
-         = !parse_unicode_escapes(write_byte);
+        {
+          // \uXXXX [\uXXXX]
+          current_byte++;
+          int cp = parse_unicode_escapes(write_byte);
+          if(cp < 0)
+            return JSONN_UNEXPECTED;
+          int count = write_utf8_codepoint(cp, write_byte);
+          write_byte += count;
+          illformed_utf8 = (0 == count);
+        }
         break;
 
       default:
@@ -264,8 +263,10 @@ jsonn_type parse_string(int8_t *utf8, size_t count, jsonn_result *result) {
     }
 
     if(illformed_utf8) {
-      if(can_replace_illformed_utf8(current_byte - write_byte)) {
-        write_byte += write_replacement_character(write_byte);
+      // replace illformed utf8 if configured and there is room for it
+      if(replace_illformed_utf8 
+          && current_byte - write_byte > replacement_length) {
+        write_byte += write_replacement(write_byte);
         illformed_utf8 = 0;
       } else {
         return JSONN_UNEXPECTED;

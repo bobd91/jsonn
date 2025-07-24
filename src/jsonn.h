@@ -18,25 +18,70 @@ typedef enum {
 } jsonn_type;
 
 typedef enum {
-  JSONN_LONG_VALUE,
-  JSONN_DOUBLE_VALUE,
-  JSONN_STRING_VALUE
-} jsonn_value_type;
+  JSONN_LONG_RESULT,
+  JSONN_DOUBLE_RESULT,
+  JSONN_STRING_RESULT,
+  JSONN_STREAM_RESULT,
+  JSONN_ERROR_RESULT
+} jsonn_result_type;
 
 typedef struct {
-  int info;
+  json_result_type type;
+  int extra;
   union {
-    long long_value;
-    double double_value;
-    uint8_t *string_value;
+    int64_t long_number;
+    double double_number;
+    uint8_t *string;
+    FILE *stream;
+    jsonn_error error;
   } is;
-} jsonn_value;
-
-typedef struct {
-  jsonn_value_type type;
-  jsonn_value value;
 } jsonn_result;
 
+typedef struct {
+  size_t at;
+  char *message;
+} jsonn_error;
 
-int jsonn_parse_init(unit8_t *json_text,  size_t json_length, int is_jsonc);
-jsonn_type jsonn_parse_next(jsonn_result *result);
+typedef struct {
+  void (*j_literal)(jsonn_parser, jsonn_type);
+  void (*j_long)(jsonn_parser, int64_t);
+  void (*j_double)(jsonn_parser, double);
+  void (*j_string)(jsonn_parser, uin8_t *, size_t);
+  void (*j_stream)(jsonn_parser, FILE *);
+  void (*j_begin_array)(jsonn_parser);
+  void (*j_end_array)(jsonn_parser);
+  void (*j_begin_object)(jsonn_parser);
+  void (*j_end_object)(jsonn_parser);
+  int (*j_error)(jsonn_parser, jsonn_error);
+} jsonn_callbacks;
+
+typedef struct {
+  uint8_t *current;
+  uint8_t *last;
+  uint8_t *write;
+} jsonn_next_parser;
+
+typedef struct {
+  FILE *stream;
+} jsonn_stream_parser;
+
+typedef struct {
+  int type;
+  size_t stack_max;
+  size_t stack_pointer;
+  uint8_t *stack;
+  union {
+    jsonn_next_parser next;
+    jsonn_stream_parser stream;
+  } parser;
+} *jsonn_parser;
+
+json_parser jsonn_new(uint8_t* config);
+void jsonn_free(jsonn_parser parser);
+
+void jsonn_buffer(jsonn_parser parser, uint8_t *buffer, size_t length);
+void jsonn_stream(jsonn_parser parser, FILE *stream);
+
+jsonn_type jsonn_next(jsonn_parser parser, jsonn_result *result);
+json_type jsonn_callback(jsonn_parser, jsonn_callbacks callbacks, jsonn_result *result);
+
