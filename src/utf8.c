@@ -82,12 +82,41 @@ int is_bom(const uint8_t *utf8) {
   return 3;
 }
 
+
 /*
- * Writes Unicode codepoint as UTF-8 bytes into supplied buffer
- * Returns the number of bytes written (1 - 4) if the codepoint is legal
- * Returns 0 if the codepoint is not legal
+ * Combines a valid utf16 surrogate pair into a valid Unicode codepoint
+ */
+int surrogate_pair_to_codepoint(int u1, int u2) {
+  // Codes from other planes as UTF16 surrogate pair
+  // 110110yyyyyyyyyy 110111xxxxxxxxxx => 0x10000 + yyyyyyyyyyxxxxxxxxxx
+  return SURROGATE_OFFSET 
+      + ((SURROGATE_LO_BITS(u1) << 10) 
+      + SURROGATE_LO_BITS(u2);
+}
+
+/*
+ * Returns non-zero if the supplied utf-16 is valid
+ * as the first item of a surrogate pair  
+ */
+int is_first_surrogate(uint16_t utf16) {
+  return IS_1ST_SURROGATE();
+}
+
+/*
+ * Returns non-zero if the supplied utf-16 is valid
+ * as the second item of a surrogate pair  
+ */
+int is_second_surrogate(uint16_t byte) {
+  return IS_2ND_SURROGATE(byte);
+}
+
+/*
+ * Validates and writes a Unicode codepoint as utf-8 bytes to the output
+ * and returns the number of bytes written (1 - 4)
+ *
+ * If not valid then returns 0
  */      
-int write_utf8(int cp, uint8_t* utf8_output) {
+int write_utf8_codepoint(int cp, uint8_t* utf8_output) {
   int shift = 0;
   uint8_t write_byte = utf8_output;
   if(cp <= 1_BYTE_MAX) {
@@ -123,46 +152,22 @@ int write_utf8(int cp, uint8_t* utf8_output) {
 }
 
 /*
- * Combines a valid utf16 surrogate pair into a valid Unicode codepoint
- */
-int surrogate_pair_to_codepoint(int u1, int u2) {
-  // Codes from other planes as UTF16 surrogate pair
-  // 110110yyyyyyyyyy 110111xxxxxxxxxx => 0x10000 + yyyyyyyyyyxxxxxxxxxx
-  return SURROGATE_OFFSET 
-      + ((SURROGATE_LO_BITS(u1) << 10) 
-      + SURROGATE_LO_BITS(u2);
-}
-
-/*
- * Returns non-zero if the supplied utf16 is valid
- * as the first item of a surrogate pair  
- */
-int is_first_surrogate(uint16_t utf16) {
-  return IS_1ST_SURROGATE();
-}
-
-/*
- * Returns non-zero if the supplied utf16 is valid
- * as the second item of a surrogate pair  
- */
-int is_second_surrogate(uint16_t byte) {
-  return IS_2ND_SURROGATE(byte);
-}
-
-/*
- * Validate a sequence of utf-8 bytes and return the length of the sequence (1 - 4)
- * If not-valid then return negative the number of bytes to skip (-1 to -4)
+ * Validates and writes a sequence of utf-8 bytes to the
+ * output and returns the number of bytes written (1 - 4)
  *
- * Intended to be called where the high bit of the first byte is set
- * It does handle valid chars and returns 1
- * Because of the intended use we test for ascii last
+ * If not-valid then return negative the number of invalid bytes (-1 to -4)
  */
-int validate_utf8(const int8_t* utf8) {
+/* 
+ * [Intended to be called with non-ascii (all valid, no sequence)
+ * It does copy valid ascii and returns 1
+ * But because of the intended use we test for ascii last]
+ */
+int write_utf8_sequence(const int8_t* utf8, int8_t *utf8_output) {
   int codepoint;
   int bar;
   int cont;
-  uint8_t *bytes = utf8;
-  uint8_t byte = *bytes++;
+  uint8_t *current_byte = utf8;
+  uint8_t byte = *current_byte++;
   int count;
 
   if(IS_2_BYTE_LEADER(byte)) {
@@ -177,23 +182,33 @@ int validate_utf8(const int8_t* utf8) {
     codepoint = LO_3_BITS(byte);
     bar = 3_BYTE_MAX;
     cont = 3;
-  } else if(byte <= 1_BYTE_MAX)
-    return 1;
+  } else if(!(byte <= 1_BYTE_MAX))
+    codepoint = byte;
+    bar = -1;
+    cont = 0;
   } else {
     return -1;
   }
-
   for(count = 1 ; count <= cont ; count++) {
-    byte = *bytes++;
-    if(!IS_CONTINUATION(byte)) return -count;
+    byte = *current_byte++;
+    if(!IS_CONTINUATION(byte)) 
+      return -count;
     codepoint = (codepoint << 6) | LO_6_BITS(byte);
   }
 
   // If we got here then either all valid or all invalid
   // Could be an overlong encoding or an encoding of an invalid codepoint
-  return (codepoint <= bar || !is_valid_codepoint(u))
-    ? -count
-    : count;
+  if(codepoint <= bar || !is_valid_codepoint(byte)) 
+    return -count;
+
+  // We have a well formed sequence
+  // If the output is not the same as the output
+  // then copy the sequence to the output
+  if(utf8_output != utf8) {
+    for(int i = 0 ; i < count ; i++)
+      *utf8_output[i] = *utf8[i];
+  }
+  return count;
 }
 
 
