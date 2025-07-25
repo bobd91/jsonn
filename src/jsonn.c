@@ -5,9 +5,6 @@
 
 #include "jsonn.h"
 
-#define JSONN_BUFFER_PARSER 0
-#define JSONN_STREAM_PARSER 1
-
 void *(*jsonn_alloc)(size_t) = malloc;
 void (*jsonn_dealloc)(void *) = free;
 
@@ -16,19 +13,19 @@ void jsonn_set_allocator(void *(malloc)(size_t), void (*free)(void *)) {
   jsonn_dealloc = free;
 }
 
-static jsonn_new(uint8_t *config) {
-  jsonn_config c = read_config(config);
+jsonn_parser jsonn_new(uint8_t *config) {
+  jsonn_config c = jsonn_config_parse(config);
   if(!c)
     return NULL;
 
   size_t struct_size = sizeof(jsonn_context);
-  p = jsonn_alloc(struct_size + c.stack_size + c.buffersize);
+  p = jsonn_alloc(struct_size + (c.stack_size / 8));
   if(!p)
     return NULL;
 
   p->flags = c.flags;
-  p->stack_max = 8 * c.stack_size;
-  p->stack = p + struct_size + buffersize;
+  p->stack_size = c.stack_size;
+  p->stack = p + struct_size;
 
   return p;
 }
@@ -37,347 +34,94 @@ void jsonn_free(jsonn_parser p) {
   jsonn_dealloc(p);
 }
 
-jsonn_parser jsonn_buffer_parser(uint8_t *config) {
-  jsonn_config c = jsonn_config_parse(config);
-  if(!c)
-    return NULL;
-
-  jsonn_parser p = jsonn_new(c);
-  if(!p)
-    return NULL;
-
-  p->type = JSONN_BUFFER_PARSER;
-  return p;
+void jsonn_set_callbacks(p, jsonn_callbacks callbacks) {
+  p->callback = 1;
+  p->callbacks = callbacks;
 }
 
-jsonn_parser jsonn_stream_parser(uint8_t *config) {
-  jsonn_config c = read_config(config);
-  if(!c)
-    return NULL;
-
-  jsonn_parser p = jsonn_new(c);
-  if(!p)
-    return NULL;
-
-  p->type = JSONN_STREAM_PARSER;
-  p->start = p + sizeof(jsonn_context);
-  p->last = p->start + c.buffersize;
-  *p->last = '\0';
-
-  return p;
-}
-
-static void jsonn_init_common(jsonn_parser p) {
-  p->current = p->start;
-  p->stack_pointer = 0;
-
-  consume_bom();
-}
-
-int jsonn_init_buffer(jsonn_parser p, uint8_t *buf, size_t length) {
-  if(p->type != JSONN_BUFFER_PARSER)
-    return -1;
-
+static void json_init(jsonn_parser p, uint8_t *json, size_t length) {
+  p->next = jsonn_init_next(p);
   p->start = p->current = buf;
   p->last = buf + length;
   *p->last = '\0';
-
-  jsonn_init_common(p);
-  return 0;
+  p->stack_pointer = 0;
+  
+  consume_bom();
 }
 
-int jsonn_init_stream(jsonn_parser p, FILE *stream) {
-  if(p->type != JSONN_STREAM_PARSER)
-    return -1;
+jsonn_type jsonn_parse(jsonn_parser p, 
+    uint8_t *json, size_t length,
+    jsonn_result *result,
+    jsonn_callbacks *callbacks) {
 
-  p->stream = stream;
+  jsonn_init(p, json, length);
 
-  jsonn_init_common(p);
-  return 0;
+  return callbacks
+    ? jsson_parse_callback(p, result, callbacks);
+    : jsson_parse_next(p, result);
 }
 
 jsonn_type jsson_next(jsonn_parser p, jsonn_result *result) {
-  return jsonn_parse_next(p, result);
+  return jsonn_parse_next(p. result);
 }
 
-jsonn_type jsson_callback(
-    jsonn_parser p, 
-    jsonn_callbacks callbacks, 
-    jsonn_result *result) {
+static jsonn_type jsson_callback(jsonn_parser p, jsonn_result *result, jsonn_callbacks *callbacks) {
   jsonn_type type;
+  int res;
   while(JSONN_EOF != (type = jsson_parse_next(p, result))) {
     switch(type) {
     case JSONN_FALSE:
-    case JSONN_NULL:
     case JSONN_TRUE:
-      res = callbacks->j_literal(p, type);
+      res = callbacks->j_boolean && callbacks->j_boolean(p, type == JSONN_TRUE);
       break;
 
+    case JSONN_NULL:
+      res = callbacks->j_null && callbacks->j_null(p);
+
     case JSONN_LONG:
-      res = callbacks->j_long(p, result->is.long_number);
+      res = callbacks->j_long && callbacks->j_long(p, result->is.long_number);
       break;
 
     case JSONN_DOUBLE:
-      res = callbacks->j_double(p, result->is.double_number);
+      res = callbacks->j_double && callbacks->j_double(p, result->is.double_number);
       break;
 
     case JSONN_STRING:
-      res = callbacks->j_string(p, result->is.string);
+      res = callbacks->j_string && callbacks->j_string(p, result->is.string);
       break;
 
     case JSONN_NAME:
-      res = callbacks->j_name(p, result->is.string);
+      res = callbacks->j_name && callbacks->j_name(p, result->is.string);
       break;
 
     case JSONN_BEGIN_ARRAY:
-      res = callbacks->j_begin_array(p);
+      res = callbacks->j_begin_array && callbacks->j_begin_array(p);
       break;
 
     case JSONN_END_ARRAY:
-      res = callbacks->j_end_array(p);
+      res = callbacks->j_end_array && callbacks->j_end_array(p);
       break;
 
     case JSONN_BEGIN_OBJECT:
-      res = callbacks->j_begin_object(p);
+      res = callbacks->j_begin_object && callbacks->j_begin_object(p);
       break;
 
     case JSONN_END_OBJECT:
-      res = callbacks->j_end_object(p);
+      res = callbacks->j_end_object && callbacks->j_end_object(p);
       break;
 
     case JSONN_UNEXPECTED:
-      res = callbacks->j_unexpected(p, result->is.error);
+      // If no callback then default to unexpected
+      res = (!callbacks->j_unexpected) || callbacks->j_unexpected(p, result->is.error);
       break;
 
     default:
-      res = -1;
+      res = 0;
       
     }
-    if(res = -1)
+    if(!res)
       return JSONN_UNEXPECTED;
   }
 
   return JSONN_EOF;
 }
-
-
-
-
-jsonn_type begin_object(jsonn_parser p) {
-  p->current++;
-  if(push_next(JSONN_OBJECT_MEMBER_OPTIONAL) < 0) return JSONN_UNEXPECTED;
-  return JSONN_BEGIN_OBJECT;
-}
-
-jsonn_type end_object(jsonn_parser p) {
-  p->current++;
-  if(pop_next() < 0) return JSONN_UNEXPECTED;
-  return JSONN_END_OBJECT;
-}
-
-jsonn_type begin_array(jsonn_parser p) {
-  p->current++;
-  if(push_next(JSONN_ARRAY_VALUE_OPTIONAL) < 0) return JSONN_UNEXPECTED;
-  return JSONN_BEGIN_ARRAY;
-}
-
-jsonn_type end_array(jsonn_parser p) {
-  p->current++;
-  if(pop_next() < 0) return JSONN_UNEXPECTED;
-  return JSONN_END_ARRAY;
-}
-
-jsonn_type parse_literal(jsonn_parser p, char *literal, jsonn_type type) {
-  // Already matched first character of literal to get here so we can skip that one
-  jsonn_stream_buffer(p, strlen(literal));
-  char *s1 = literal;
-  char *s2 = p->current
-  while(*++s1 == *++s2 && *s1)
-    ;
-  // If we are at the null at the end of literal then we found it
-  if(!*s1) {
-    p->current = s2;
-    return type;
-  }
-  return JSONN_UNEXPECTED;
-}
-
-jsonn_type parse_value(jsonn_parser p, jsonn_value *result) {
-  if(current_byte < last_byte) {
-    char this_byte = *current_byte;
-    switch(this_byte) {
-    case '"':
-      return parse_string(result);
-    case '{':
-      return begin_object();
-    case '[':
-      return begin_array();
-    case 'n':
-      return parse_literal("null", JSONN_NULL);
-    case 'f':
-      return parse_literal("false", JSONN_FALSE);
-    case 't':
-      return parse_literal("true", JSONN_TRUE);
-    case '-':
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      return parse_number(result);
-    }
-  }
-  return JSONN_UNEXPECTED;
-}
-
-jsonn_type parse_array_terminator(jsonn_value *result) {
-  if(current_byte < last_byte) {
-    char this_byte = *current_byte;
-    if(']' == *current_byte) {
-      current_byte++;
-      return end_array();
-    }
-    return JSONN_UNEXPECTED;
-  }
-}
-
-jsonn_type parse_object_terminator(jsonn_value *result) {
-  if(current_byte < last_byte) {
-    char this_byte = *current_byte;
-    if('}' == *current_byte) {
-      current_byte++;
-      return end_object();
-    }
-    return JSONN_UNEXPECTED;
-  }
-}
-
-
-jsonn_next consume_array_value_separator() {
-  if(current_byte < last_byte) {
-    char this_byte = *current_byte;
-    switch(this_byte) {
-    case ',':
-      current_byte++;
-      return ignore_trailing_commas ? JSONN_ARRAY_VALUE_OPTIONAL : JSONN_ARRAY_VALUE;
-    case ']':
-      // not separator so don't consume
-      return JSONN_ARRAY_TERMINATOR;
-    }
-  }
-  return JSONN_UNEXPECTED;
-}
-
-jsonn_next consume_object_member_separator() {
-  if(current_byte < last_byte) {
-    char this_byte = *current_byte;
-    switch(this_byte) {
-    case ',':
-      current_byte++;
-      return ignore_trailing_commas ? JSONN_OBJECT_MEMBER_OPTIONAL : JSONN_OBJECT_MEMBER;
-    case '}':
-      // not separator so don't consume
-      return JSONN_OBJECT_TERMINATOR;
-    }
-  }
-  return JSONN_UNEXPECTED;
-}
-
-jsonn_next consume_object_name_separator() {
-  if(current_byte < last_byte) {
-    char this_byte = *current_byte;
-    if(':' == this_byte) {
-      current_byte++;
-      return JSONN_OBJECT_MEMBER_VALUE;
-    }
-  }
-  return JSONN_UNEXPECTED;
-}
-
-int is_valid(jsonn_type type) {
-  return type != JSONN_UNEXPECTED;
-}
-
-int is_value(jsonn_type type) {
-  return type == JSONN_FALSE
-    || type == JSONN_NULL
-    || type == JSONN_TRUE
-    || type == JSONN_NUMBER
-    || type == JSONN_STRING;
-}
-
-jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result) {
-  jsonn_type ret;
-  while(1) {
-    consume_whitespace();
-    int optional = 1; // are values/pairs required?
-    switch(next) {
-
-    case JSONN_ARRAY_VALUE:
-      optional = 0;
-      // fall through
-    case JSONN_ARRAY_VALUE_OPTIONAL:
-      ret = parse_value(result);
-      if(is_valid(ret)) {
-        if(is_value(ret))
-          next = JSONN_ARRAY_VALUE_SEPARATOR;
-        return ret;
-      } else if (!optional) {
-        return ret;
-      }
-      next = JSONN_ARRAY_TERMINATOR;
-      break;
-      
-    case JSONN_ARRAY_VALUE_SEPARATOR:
-      next = consume_array_value_separator();
-      break;
-
-    case JSONN_ARRAY_TERMINATOR:
-      return parse_array_terminator(result);
-
-    case JSONN_OBJECT_MEMBER:
-      optional = 0;
-      // fall through
-    case JSONN_OBJECT_MEMBER_OPTIONAL:
-      ret = parse_name(result);
-      if(is_valid(ret)) {
-        next = JSONN_OBJECT_NAME_SEPARATOR;
-        return ret;
-      } else if(!optional) {
-        return ret;
-      }
-      next = JSONN_OBJECT_TERMINATOR;
-      break;
-
-    case JSONN_OBJECT_NAME_SEPARATOR:
-        next = consume_object_name_separator();
-        break;
-
-    case JSONN_OBJECT_MEMBER_VALUE:
-        ret = parse_value(result);
-        if(is_valid(ret)) {
-          if(is_value(ret)) {
-            next = JSONN_OBJECT_MEMBER_SEPARATOR;
-          }
-          return ret;
-        }
-        return ret;
-
-    case JSONN_OBJECT_MEMBER_SEPARATOR:
-      next = consume_object_member_separator();
-      break;
-
-    case JSONN_OBJECT_TERMINATOR:
-      return parse_object_terminator(result);
-
-    default:
-      return JSONN_UNEXPECTED;
-    }
-  }
-}
-

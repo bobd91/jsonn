@@ -19,21 +19,18 @@ typedef enum {
   JSONN_EOF,
 } jsonn_type;
 
-typedef enum {
-  JSONN_LONG_RESULT,
-  JSONN_DOUBLE_RESULT,
-  JSONN_STRING_RESULT,
-  JSONN_ERROR_RESULT
-} jsonn_result_type;
-
 typedef struct {
   uint8_t *bytes;
   size_t length;
-  int partial;
 } jsonn_string
 
 typedef struct {
-  json_result_type type;
+  size_t at;
+  char *message;
+} jsonn_error;
+
+typedef struct {
+  jsonn_result_type type;
   union {
     int64_t long_number;
     double double_number;
@@ -43,22 +40,15 @@ typedef struct {
 } jsonn_result;
 
 typedef struct {
-  size_t at;
-  char *message;
-} jsonn_error;
-
-typedef struct {
-  int type;
-  jsonn_next next;
-  uint8_t flags;
-  size_t stack_max;
-  size_t stack_pointer;
-  uint8_t *stack;
   uint8_t *start;
   uint8_t *current;
   uint8_t *last;
   uint8_t *write;
-  FILE *stream;
+  jsonn_next next;
+  uint8_t flags;
+  size_t stack_size;
+  size_t stack_pointer;
+  uint8_t *stack;
 } jsonn_context;
 
 typedef jsonn_context *jsonn_parser;
@@ -75,14 +65,16 @@ typedef struct {
   int (*j_unexpected)(jsonn_parser, jsonn_error);
 } jsonn_callbacks;
 
-jsonn_set_allocator(void *(*)(size_t));
+jsonn_allocator(void *(*malloc)(size_t), void (*free)(void *));
 
-jsonn_parser jsonn_buffer_parser(uint8_t* config);
-jsonn_parser jsonn_stream_parser(uint8_t* config);
+jsonn_parser jsonn_new(uint8_t* config);
+void jsonn_free(jsonn_parser p);
 
-void jsonn_init_buffer(jsonn_parser parser, uint8_t *buffer, size_t length);
-void jsonn_init_stream(jsonn_parser parser, FILE *stream);
+jsonn_type jsonn_parse(jsonn_parser parser, 
+    uint8_t *json, size_t length,
+    jsonn_result *result,
+    jsonn_callbacks *callbacks);
 
 jsonn_type jsonn_next(jsonn_parser parser, jsonn_result *result);
-jsonn_type jsonn_callback(jsonn_parser, jsonn_callbacks callbacks, jsonn_result *result);
 
+/* TODO: _find, _find_any, ... ? */

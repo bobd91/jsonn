@@ -29,7 +29,7 @@ static void consume_whitespace(jsonn_parser p) {
     case '\t':
       break;
     case '/':
-      if(!ignore_comments) return;
+      if(!p->flags & FLAG_ALLOW_COMMENST) return;
 
       char next_byte = *(1 + p->current); // safe as we are null terminated
       switch(next_byte) {
@@ -290,32 +290,32 @@ jsonn_type parse_string(int8_t *utf8, size_t count, jsonn_result *result) {
  * JSON doesn't permit leading 0s or hex numbers but strtod does
  * so validate first.
  *
- * If double value is equal to the long value then return the long value
+ * If double value can be convertted to long without loss 
+ * and the input text does not contain a decimal point
+ * then return the long value
  */
 jsonn_type parse_number(const int8_t *utf8, jsonn_result *result) {
   uint8_t *current_byte = utf8;
   uint8_t *double_end;
   double double_val;
-  long long_val;
+  int64_t long_val;
 
   if('-' == *current_byte)
     current_byte++;
 
-  // Leading 0 implies 0 or 0.fraction
-  // So if no following . the result is 0
-  if('0' == *current_byte && '.' != *(current_byte + 1)) {
-    current_byte++;
-    return long_result(0, result);
-  }
+  // Leading 0 should not be followed by a digit or x or x
+  if('0' == *current_byte && strchr('01234567890xX', *(current_byte + 1))) {
+    return JSONN_UNEXPECTED;
 
   errno = 0;
   double_val = strtod(utf8, &double_end);
   if(errno) return JSONN_UNEXPECTED;
 
   current_byte = double_end;
-  long_val = (long)double_val;
-  return (double_val == long_val)
-    ? long_result(long_value, result)
-    : double_result(double_value, result);
+  long_val = (int64_t)double_val;
+  if(double_val == long_val && !strnchr(utf8, double_end - utf8, '.')) 
+    return long_result(long_val, result);
+  else
+    return double_result(double_val, result);
 }
 
