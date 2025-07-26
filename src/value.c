@@ -2,6 +2,11 @@
 
 #include "jsonn.h"
 
+#define STRING_SPECIALS_DOUBLE  "\\\""
+#define STRING_SPECIALS_SINGLE  "\\'"
+#define STRING_SPECIALS_KEY     "\\ :"
+#define STRING_SPECIALS_STRING  "\\ ,]}"
+
 static void consume_line_comment(jsonn_parser p) {
         while(p->current < p->last
                         && '\r' != *p->current 
@@ -59,11 +64,6 @@ static int skip_sequence(jsonn_parser p, uint8_t *sequence) {
 
         p->current = s;
         return 1
-}
-
-static void write_byte(jsonn_parser p, uint8_t byte) {
-        *p->write++ = byte;
-        p->current++;
 }
 
 // Parse XXXX of \uXXXX sequence into a Unicode codepoint
@@ -135,26 +135,27 @@ static jsonn_type string_result(
         return JSONN_STRING;
 }
 
-static uint8_t next_special_byte(jsonn_parser p) 
+static uint8_t next_special(jsonn_parser p, uint8_t *specials) 
 {
+        uint8_t byte;
         if(p->current == p->write) {
-                while(0x20 < *p->current
-                                && '"' != *p->current
-                                && '\\' != *p->current
-                                && 0x80 > *p->current) {
-                        if(p->current == p->last) { 
-                                p->write = p->current;
+                // nothing moved so we can just skip bytes
+                while(p->current < p->last) {
+                        byte = *p->current;
+                        if(strchr(specials, byte)
+                                        || 0x20 > byte
+                                        || 0x7F < byte) 
                                 break;
-                        }
                         p->current++;
                 }
                 p->write = p->current;
         } else {
-                while(0x20 < *p->current
-                                && '"' != *p->current
-                                && '\\' != *p->current
-                                && 0x80 > *p->current) {
-                        if(p->current == p->last)
+                // things have moved so we have to copy bytes
+                while(p->current < p->last) {
+                        byte = *p->current;
+                        if(strchr(specials, byte)
+                                        || 0x20 > byte
+                                        || 0x7F < byte) {
                                 break;
                         *p->write++ = *p->current++;
                 }
@@ -166,20 +167,18 @@ static uint8_t next_special_byte(jsonn_parser p)
 
 
 /*
- * Same as parse_string except on success it returns JSONN_NAME
+ * Calls parse_string to parse the key
+ * If successful return JSONN_KEY, else JSONN_UNEXPECTED
  */
-jsonn_type parse_name(jsonn_parser p, jsonn_value *result) 
+jsonn_type parse_key(jsonn_parser p, jsonn_value *result) 
 {
-        jsonn_type type = parse_string(p, result);
-        return (type == JSONN_STRING) 
-                ? JSONN_NAME
-                : JSONN_UNEXPECTED;
+        return parse_string(p, JSONN_KEY, result);
 }
 
 /*
  * Parse JSON string into utf-8
  *
- * Returns JSONN_STRING if the string was converted to utf8
+ * Returns JSONN_STRING or JSONN_KEY if the string was converted to utf8
  *         JSONN_UNEXPECTED if the string could not be converted 
  * The actual string is set in jsonn_result
  *
@@ -202,58 +201,100 @@ jsonn_type parse_name(jsonn_parser p, jsonn_value *result)
  * the original JSON string.  If situation arrises then no replacement
  * will be made and JSONN_UNEXPECTED will be returned.
  */
-static jsonn_type parse_string(jsonn_parser p, jsonn_result *result) 
+static jsonn_type parse_string(jsonn_parser p, jsonn_type type, jsonn_result *result) 
 {
-        int illformed_utf8 = 0;
+        uint8_t *specials = NULL;
 
-        if('"' != *p->current)
+        switch(*p->current) {
+        case '"':
+                specials = STRING_SPECIALS_DOUBLE;
+                p->quote = '"';
+                p->current++;
+                break;
+
+        case '\'':
+                specials = STRING_SPECIALS_SINGLE;
+                p->quote = '\'';
+                p->current++;
+                break;
+
+        default:
+                switch(type):
+                case JSONN_STRING:
+                        if(p->flags & FLAG_UNQUOTED_STRINGS)
+                                specials = STRING_SPECIALS_STRING;
+                        break
+
+                case JSONN_KEY:
+                        if(p->flags & FLAG_UNQUOTED_KEY)
+                                specials = STRING_SPECIALS_KEY;
+                        break;
+        }
+
+        if(!specials)
                 return JSONN_UNEXPECTED;
 
-        uint8_t *start = ++p->current;
+        int illformed_utf8 = 0;
+        p->terminator = NULL;
+        uint8_t *start = p->current;
 
         while(p->current < p->last) {
 
-                // Next byte will be ", \, ascii control, UTF-8 or NULL if we hit EOF
-                uint8_t byte = next_special_byte(p);
-                if(!byte)
-                        break; 
+                // Next byte will be quote terminator, ascii control, UTF-8 
+                // or NULL if we hit EOF
+                uint8_t byte = next_special(p, specials);
+                switch(byte) {
+                case ',':
+                case '}':
+                case ']':
+                case ':':
+                        p->terminator = byte;
+                // fall through
+                case '"':
+                case '\'':
+                case ' ':
+                        p->current++;
+                        *p->write = NULL;
+                        return string_result(start, p->write - start, type, result);
 
-                if('"' == byte) {
-                        p->current++;
-                        *p->write = '\0';
-                        return string_result(start, p->write - start, result);
-                } else if('\\' == byte) {
-                        p->current++;
-                        switch(*p->current) {
+                case '\\':
+                        byte = *p->current++;
+
+                        // if not quoted just escape char
+                        if(!p->quote) {
+                                p->write++ = byte;
+                                break;
+                        }
+
+                        switch(byte) {
                         case '"':
                         case '\\':
                         case '/':
-                                write_byte(*p->current);
+                                p->write++ = byte;
                                 break;
 
                         case 'b':
-                                write_byte('\b');
+                                p->write++ = '\b';
                                 break;
 
                         case 'f':
-                                write_byte('\f');
+                                p->write++ = '\f';
                                 break;
 
                         case 'n':
-                                write_byte('\n');
+                                p->write++ = '\n';
                                 break;
 
                         case 'r':
-                                write_byte('\r');
+                                p->write++ = '\r';
                                 break;
 
                         case 't':
-                                write_byte('\t');
+                                p->write++ = '\t';
                                 break;
 
                         case 'u':
                                 // \uXXXX [\uXXXX]
-                                p->current++;
                                 int cp = parse_unicode_escapes(p);
                                 if(cp < 0)
                                         return JSONN_UNEXPECTED;
@@ -261,20 +302,19 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_result *result)
                                 break;
 
                         default:
+                                if(flag & FLAG_ESCAPE_CHARACTER)
+                                        p->write++ = byte;
+                                else
+                                        return JSONN_UNEXPECTED;
+                                break;
+                        }
+
+                default:
+                        if(0x20 > byte) {
                                 return JSONN_UNEXPECTED;
+                        } else {
+                                illformed_utf8 = !write_utf8_sequence(p);
                         }
-
-                        if(replace) {
-                                p->write++ = replace;
-                                p->current++;
-                        }
-
-                } else if(0x20 > *p->current) {
-                        return JSONN_UNEXPECTED;
-
-                } else {
-                        // UTF-8
-                        illformed_utf8 = !write_utf8_sequence(p);
                 }
 
                 if(illformed_utf8) {

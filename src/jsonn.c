@@ -20,14 +20,16 @@ jsonn_parser jsonn_new(uint8_t *config)
         if(!c)
                 return NULL;
 
-        size_t struct_size = sizeof(jsonn_context);
-        p = jsonn_alloc(struct_size + (c.stack_size / 8));
+        size_t struct_bytes = sizeof(jsonn_context);
+        // 1-8 => 1, 9-16 => 2, etc
+        size_t stack_bytes = 1 + (c.stack_size -1) / 8;
+        p = jsonn_alloc(struct_bytes + stack_bytes);
         if(!p)
                 return NULL;
 
         p->flags = c.flags;
         p->stack_size = c.stack_size;
-        p->stack = p + struct_size;
+        p->stack = p + struct_bytes;
 
         return p;
 }
@@ -37,19 +39,15 @@ void jsonn_free(jsonn_parser p)
         jsonn_dealloc(p);
 }
 
-void jsonn_set_callbacks(p, jsonn_callbacks callbacks) 
-{
-        p->callback = 1;
-        p->callbacks = callbacks;
-}
-
 static void json_init(jsonn_parser p, uint8_t *json, size_t length) 
 {
         p->next = jsonn_init_next(p);
-        p->start = p->current = buf;
-        p->last = buf + length;
-        *p->last = '\0';
+        p->start = p->current = json;
+        p->last = json + length;
+        *p->last = NULL;
         p->stack_pointer = 0;
+        p->terminator = NULL;
+        p->quote = NULL;
 
         consume_bom();
 }
@@ -62,8 +60,8 @@ jsonn_type jsonn_parse(jsonn_parser p,
         jsonn_init(p, json, length);
 
         return callbacks
-                ? jsson_parse_callback(p, result, callbacks);
-        : jsson_parse_next(p, result);
+                ? jsson_parse_callback(p, result, callbacks)
+                : jsson_parse_next(p, result);
 }
 
 jsonn_type jsson_next(jsonn_parser p, jsonn_result *result)
@@ -82,22 +80,18 @@ static jsonn_type jsson_callback(
                 switch(type) {
                 case JSONN_FALSE:
                 case JSONN_TRUE:
-                        res = callbacks->j_boolean
-                                && callbacks->j_boolean(p, type == JSONN_TRUE);
-                        break;
-
                 case JSONN_NULL:
-                        res = callbacks->j_null 
-                                && callbacks->j_null(p);
+                        res = callbacks->j_literal 
+                                && callbacks->j_literal(p, type);
 
                 case JSONN_LONG:
-                        res = callbacks->j_long 
-                                && callbacks->j_long(p, result->is.long_number);
+                        res = callbacks->j_number 
+                                && callbacks->j_number(p, type, result);
                         break;
 
                 case JSONN_DOUBLE:
-                        res = callbacks->j_double 
-                                && callbacks->j_double(p, result->is.double_number);
+                        res = callbacks->j_number 
+                                && callbacks->j_number(p, type, result);
                         break;
 
                 case JSONN_STRING:
@@ -105,9 +99,9 @@ static jsonn_type jsson_callback(
                                 && callbacks->j_string(p, result->is.string);
                         break;
 
-                case JSONN_NAME:
-                        res = callbacks->j_name
-                                && callbacks->j_name(p, result->is.string);
+                case JSONN_KEY:
+                        res = callbacks->j_key
+                                && callbacks->j_key(p, result->is.string);
                         break;
 
                 case JSONN_BEGIN_ARRAY:
