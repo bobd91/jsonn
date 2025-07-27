@@ -9,7 +9,6 @@
 
 #include "config.c"
 #include "utf8.c"
-#include "error.c"
 
 #define STRING_SPECIALS_DOUBLE  "\\\""
 #define STRING_SPECIALS_SINGLE  "\\'"
@@ -241,6 +240,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
         int illformed_utf8 = 0;
         p->terminator = '\0';
         uint8_t *start = p->current;
+        p->write = p->current;
 
         while(p->current < p->last) {
 
@@ -261,10 +261,12 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                 case '\'':
                 case ' ':
                         p->current++;
-                        *p->write = '\0';
-                        return set_string_result(p, start, p->write - start, type);
+                        *p->write++ = '\0';
+                        return set_string_result(p, start, p->write - start - 1, type);
 
                 case '\\':
+                        p->current++; // skip the \ without writing
+
                         byte = *p->current++;
 
                         // if string not quoted then just escape char

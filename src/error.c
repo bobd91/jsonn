@@ -12,3 +12,8 @@ static jsonn_type parse_error(jsonn_parser p)
 {
         return error(p, JSONN_ERROR_PARSE);
 }
+
+static int config_error(jsonn_parser p)
+{
+        return error(p, JSONN_ERROR_CONFIG);
+}

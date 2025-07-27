@@ -172,9 +172,10 @@ static int write_utf8_sequence(jsonn_parser p)
 static int write_replacement_character(jsonn_parser p)
 {
         int i;
-        for(i = 0 ; i < sizeof(REPLACEMENT_CHARACTER) ; i++)
+        size_t bytes = sizeof(REPLACEMENT_CHARACTER) / sizeof(REPLACEMENT_CHARACTER[0]);
+        for(i = 0 ; i < bytes ; i++)
                 *p->write++ = REPLACEMENT_CHARACTER[i];
-        return i;
+        return bytes;
 }
 
 /*
@@ -183,7 +184,7 @@ static int write_replacement_character(jsonn_parser p)
  */
 static size_t bom_bytes(jsonn_parser p)
 {
-        size_t bytes = sizeof(BYTE_ORDER_MARK);
+        size_t bytes = sizeof(BYTE_ORDER_MARK) / sizeof(BYTE_ORDER_MARK[0]);
         return (0 == memcmp(BYTE_ORDER_MARK, p->current, bytes))
                         ? bytes
                         : 0;
@@ -218,4 +219,3 @@ static int surrogate_pair_to_codepoint(int u1, int u2)
                 + (SURROGATE_LO_BITS(u1) << 10) 
                 + SURROGATE_LO_BITS(u2);
 }
-

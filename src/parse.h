@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 
+#include "jsonn.h"
+
 typedef enum {
         // Don't change as the first two values are used for stack bit
         PARSE_OBJECT_MEMBER_SEPARATOR = 0,
@@ -32,6 +34,7 @@ struct jsonn_context {
         size_t stack_size;
         size_t stack_pointer;
         uint8_t *stack;
+        uint8_t *extra;
 };
 
 typedef struct jsonn_context *jsonn_parser;

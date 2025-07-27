@@ -195,7 +195,7 @@ static parse_next consume_array_value_separator(jsonn_parser p)
                 default:
                         // not separator so don't consume
                         if(p->flags & FLAG_OPTIONAL_COMMAS)
-                                return PARSE_ARRAY_VALUE;
+                                return PARSE_ARRAY_VALUE_OPTIONAL;
                 }
         }
         return (p->flags & FLAG_IS_ARRAY)
@@ -220,7 +220,7 @@ static parse_next consume_object_member_separator(jsonn_parser p)
                 default:
                         // not separator so don't consume
                         if(p->flags & FLAG_OPTIONAL_COMMAS)
-                                return PARSE_OBJECT_MEMBER;
+                                return PARSE_OBJECT_MEMBER_OPTIONAL;
                 }
         }
         return (p->flags & FLAG_IS_OBJECT)

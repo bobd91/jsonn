@@ -43,15 +43,15 @@
  *      object keys do not have to be quoted
  *      unquoted keys are terminated by : or whitespace
  *
- *      the 'escape_characters' option will be enabled so
- *      that \: and \<space> will be valid input
+ *      enable the 'escape_characters' option to
+ *      allow \: and \<space> as valid escapes
  *
  * unquoted_strings
  *      strings do not have to be quoted
  *      unquoted strings are terminated by , } ] or whitespace
  *
- *      the 'escape_characters' option will be enabled so
- *      that \, \} \] and \<space> will be valid input
+ *      enable the 'escape_characters' option to
+ *      allow \, \} \] and \<space> as valid escapes
  *
  *      strings containing JSON unicode escapes must always
  *      be quoted
@@ -90,6 +90,8 @@
 #include "jsonn.h"
 #include "parse.h"
 
+#include "error.c"
+
 #ifndef JSONN_STACK_SIZE
 #define JSONN_STACK_SIZE 1024
 #endif
@@ -110,7 +112,8 @@ typedef struct {
         int16_t flags;
 } parser_config;
 
-parser_config default_config = {
+// Default config for user parser
+static parser_config jsonn_parser_config = {
         .stack_size = JSONN_STACK_SIZE,
         .flags = 0x0
 #ifdef JSONN_REPLACE_ILLFORMED_UTF8
@@ -145,7 +148,13 @@ parser_config default_config = {
 #endif
 };
 
-
+// Config for parsing configuration
+static const parser_config config_parser_config = {
+        .stack_size = 0,
+        .flags = FLAG_OPTIONAL_COMMAS
+                | FLAG_UNQUOTED_KEYS 
+                | FLAG_IS_OBJECT
+};
 
 #define KEY_STACK_SIZE                 "stack_size"
 #define KEY_REPLACE_ILLFORMED_UTF8     "replace_illformed_utf8"
@@ -187,7 +196,8 @@ int flag_masks[] = {
 
 static int config_flag(char *key)
 {
-        for(int i = 0 ; i < sizeof(flag_keys) ; i++) {
+        size_t bytes = sizeof(flag_keys) / sizeof(flag_keys[0]);
+        for(int i = 0 ; i < bytes ; i++) {
                 if(!strcmp(flag_keys[i], key)) {
                         return flag_masks[i];
                 }
@@ -195,84 +205,64 @@ static int config_flag(char *key)
         return 0;
 }
 
-static jsonn_parser new_config_parser(jsonn_error *error)
-{
-        // we can't provide a config here (or we infinite loop)
-        jsonn_parser p = jsonn_new(NULL, error);
-        if(p)
-                // so set required flags manually
-                p->flags |= FLAG_OPTIONAL_COMMAS 
-                          | FLAG_UNQUOTED_KEYS 
-                          | FLAG_IS_OBJECT;
-        return p;
+// Each parser will want to modify the default config
+static void config_copy_defaults(parser_config *config) {
+        config->stack_size = jsonn_parser_config.stack_size;
+        config->flags = jsonn_parser_config.flags;
 }
 
-// Return 1 on successful parse, otherwise 0
-static int parse_config(jsonn_parser p, char *config, parser_config *c)
+// Config parsing always uses the same config
+static const parser_config *config_config() {
+        return &config_parser_config;
+}
+#include <stdio.h>
+// Return JSONN_EOF on successful parse, otherwise JSONN_ERROR
+static jsonn_type config_parse(jsonn_parser p, parser_config *c)
 {
         jsonn_type key_type;
         jsonn_type value_type;
         char *key;
         int flag;
 
-        if(JSONN_BEGIN_OBJECT != jsonn_parse(p, (uint8_t *)config, strlen(config), NULL)) {
-                return 0;
-        }
-
-        while(JSONN_END_OBJECT != (key_type = jsonn_parse_next(p))) {
+        jsonn_parse(p, p->extra, strlen((char *)p->extra), NULL);
+        while(JSONN_EOF != (key_type = jsonn_parse_next(p))) {
                 if(JSONN_KEY != key_type)
-                        return 0;
+                        return config_error(p);
 
                 key = (char *)p->result.is.string.bytes;
-                value_type = jsonn_parse_next(p);
+printf("key = \"%s\"\n", key);
                 if(!strcmp(KEY_STACK_SIZE, key)) {
+                        value_type = jsonn_parse_next(p);
                         if(JSONN_LONG != value_type)
-                                return 0;
+                                return config_error(p);
 
                         c->stack_size = p->result.is.number.long_value;
                         if(c->stack_size < 0) 
-                                return 0;
+                                return config_error(p);
+printf("stack size = %ld\n", c->stack_size);
                         
                 } else if(0 != (flag = config_flag(key))) {
+                        value_type = jsonn_parse_next(p);
                         switch(value_type) {
                         case JSONN_TRUE:
+printf("flag = true\n");
                                 c->flags |= flag;
                                 break;
                         case JSONN_FALSE:
+printf("flag = false\n");
                                 c->flags &= ~flag;
                                 break;
                         default:
-                                return 0;
+                                return config_error(p);
                         }
                 } else {
-                        return 0;
+                        return config_error(p);
                 }
         }
 
         // Can't be both object and array
         if(c->flags & FLAG_IS_OBJECT && c->flags & FLAG_IS_ARRAY)
-                return 0;
-
-        // Allow escpare_characters if unquoted allowed
-        if(c->flags & (FLAG_UNQUOTED_KEYS | FLAG_UNQUOTED_STRINGS))
-                c->flags |= FLAG_ESCAPE_CHARACTERS;
+                return config_error(p);
         
-        return 1;
-}
-
-// Need to check error->code after calling
-static parser_config config_parse(char *config, jsonn_error *error) 
-{
-        parser_config c = default_config;
-        if(config && *config) {
-                jsonn_parser p = new_config_parser(error);
-                if(p) {
-                        if(!parse_config(p, config, &c)) {
-                                error->code = JSONN_ERROR_CONFIG;
-                                error->at = p->current - p->start;
-                        }
-                        jsonn_free(p);
-                }
-        }
-        return c;
+        return JSONN_EOF;
 }

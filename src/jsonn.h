@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 typedef enum {
+        JSONN_BEGIN,
         JSONN_FALSE,
         JSONN_NULL,
         JSONN_TRUE,
@@ -56,7 +57,7 @@ struct jsonn_context;
 typedef struct jsonn_context *jsonn_parser;
 
 typedef struct {
-        int (*j_boolean)(jsonn_parser, jsonn_type);
+        int (*j_boolean)(jsonn_parser, int);
         int (*j_null)(jsonn_parser);
         int (*j_long)(jsonn_parser, int64_t);
         int (*j_double)(jsonn_parser, double);
@@ -71,7 +72,7 @@ typedef struct {
 
 void jsonn_allocator(void *(*malloc)(size_t), void (*free)(void *));
 
-jsonn_parser jsonn_new(char* config, jsonn_error *error);
+jsonn_parser jsonn_new(const char* config, jsonn_error *error);
 void jsonn_free(jsonn_parser p);
 
 jsonn_type jsonn_parse(
