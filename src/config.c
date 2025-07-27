@@ -85,6 +85,11 @@
  *  Note: a configuration with both is_object and is_array will be rejected
  */
 
+#include <string.h>
+
+#include "jsonn.h"
+#include "parse.h"
+
 #ifndef JSONN_STACK_SIZE
 #define JSONN_STACK_SIZE 1024
 #endif
@@ -103,12 +108,10 @@
 typedef struct {
         size_t stack_size;
         int16_t flags;
-        int error;
-        char *error_key;
-} jsonn_config;
+} parser_config;
 
-jsonn_config default_config = {
-        .stack_size = JSONN_STACK_SIZE;
+parser_config default_config = {
+        .stack_size = JSONN_STACK_SIZE,
         .flags = 0x0
 #ifdef JSONN_REPLACE_ILLFORMED_UTF8
                 | FLAG_REPLACE_ILLFORMED_UTF8
@@ -140,7 +143,7 @@ jsonn_config default_config = {
 #ifdef JSONN_IS_ARRAY
                 | FLAG_IS_ARRAY
 #endif
-}
+};
 
 
 
@@ -182,92 +185,94 @@ int flag_masks[] = {
         FLAG_IS_ARRAY
 };
 
-#define JSONN_BAD_CONFIG 1
-
-static int64_t config_longvalue(jsonn_type type, jsonn_result &result)
+static int config_flag(char *key)
 {
-        if(JSONN_LONG == type)
-                return result->is.long_number;
-        else
-                return -1;
-}
-
-static int config_setflag(jsonn_config *config, uint8_t *key, jsonn_type type)
-{
-        if(type != JSONN_FALSE || type != JSONN_TRUE)
-                return 0;
         for(int i = 0 ; i < sizeof(flag_keys) ; i++) {
                 if(!strcmp(flag_keys[i], key)) {
-                        if(type == JSONN_TRUE)
-                                config->flags |= flag_masks[i];
-                        else 
-                                config->flags &= ~flag_masks[i];
-                        return 1;
+                        return flag_masks[i];
                 }
         }
         return 0;
 }
 
-static jsonn_parser new_config_parser()
+static jsonn_parser new_config_parser(jsonn_error *error)
 {
-        // we can't provide a config here (infinite loop ...)
-        jsonn_parser p = jsonn_new(NULL);
-        // so set required flags manually
-        p->flags |= FLAG_OPTIONAL_COMMAS | FLAG_UNQUOTED_KEYS | FLAG_IS_OBJECT;
+        // we can't provide a config here (or we infinite loop)
+        jsonn_parser p = jsonn_new(NULL, error);
+        if(p)
+                // so set required flags manually
+                p->flags |= FLAG_OPTIONAL_COMMAS 
+                          | FLAG_UNQUOTED_KEYS 
+                          | FLAG_IS_OBJECT;
         return p;
 }
 
-static void parse_config(jsonn_parser p, uint8_t config, jsonn_config *c)
+// Return 1 on successful parse, otherwise 0
+static int parse_config(jsonn_parser p, char *config, parser_config *c)
 {
-        jsonn_result key_result;
-        jsonn_result value_result;
         jsonn_type key_type;
         jsonn_type value_type;
-        uint8_t *key;
+        char *key;
+        int flag;
 
-        if(JSONN_BEGIN_OBJECT != jsonn_parse(p, config, strlen(config), &key_result)) {
-                c->error = JSONN_BAD_CONFIG;
-                return;
+        if(JSONN_BEGIN_OBJECT != jsonn_parse(p, (uint8_t *)config, strlen(config), NULL)) {
+                return 0;
         }
 
-        while(JSONN_END_OBJECT != (key_type = parse_next(p, &key_result))) {
-                if(JSONN_KEY != key_type) {
-                        c->error = JSONN_BAD_CONFIG;
-                        return;
-                }
+        while(JSONN_END_OBJECT != (key_type = jsonn_parse_next(p))) {
+                if(JSONN_KEY != key_type)
+                        return 0;
 
-                key = key_result->is.string;
-                value = jsonn_next(p, &value_result);
+                key = (char *)p->result.is.string.bytes;
+                value_type = jsonn_parse_next(p);
                 if(!strcmp(KEY_STACK_SIZE, key)) {
-                        c.stack_size = config_longvalue(value, &value_result);
-                        if(c.stack_size < 0) {
-                                c->error = JSONN_BAD_CONFIG;
-                                c->error_key = key;
-                                return;
+                        if(JSONN_LONG != value_type)
+                                return 0;
+
+                        c->stack_size = p->result.is.number.long_value;
+                        if(c->stack_size < 0) 
+                                return 0;
+                        
+                } else if(0 != (flag = config_flag(key))) {
+                        switch(value_type) {
+                        case JSONN_TRUE:
+                                c->flags |= flag;
+                                break;
+                        case JSONN_FALSE:
+                                c->flags &= ~flag;
+                                break;
+                        default:
+                                return 0;
                         }
-                } else if(!config_setflag(key, value)) {
-                        c->error = JSONN_BAD_CONFIG;
-                        c->error_key = key;
-                        return;
+                } else {
+                        return 0;
                 }
         }
-        if(c.flags & FLAG_IS_OBJECT && c.flags & FLAG_IS_ARRAY) {
-                c->error = JSONN_BAD_CONFIG;
-                return;
-        }
-        if(c.flags & FLAG_UNQUOTED_KEYS
-                        || c.flags & FLAG_UNQUOTED_STRINGS)
-                c.flags |= FLAG_ESCAPE_CHARACTERS;
 
+        // Can't be both object and array
+        if(c->flags & FLAG_IS_OBJECT && c->flags & FLAG_IS_ARRAY)
+                return 0;
+
+        // Allow escpare_characters if unquoted allowed
+        if(c->flags & (FLAG_UNQUOTED_KEYS | FLAG_UNQUOTED_STRINGS))
+                c->flags |= FLAG_ESCAPE_CHARACTERS;
+        
+        return 1;
 }
 
-static jsonn_config jsonn_config_parse(int8_t *config) 
+// Need to check error->code after calling
+static parser_config config_parse(char *config, jsonn_error *error) 
 {
-        jsonn_config c = default_config;
+        parser_config c = default_config;
         if(config && *config) {
-                jsonn_parser p = new_config_parser();
-                parse_config(p, config, &c);
-                jsonn_free(p);
+                jsonn_parser p = new_config_parser(error);
+                if(p) {
+                        if(!parse_config(p, config, &c)) {
+                                error->code = JSONN_ERROR_CONFIG;
+                                error->at = p->current - p->start;
+                        }
+                        jsonn_free(p);
+                }
         }
         return c;
 }

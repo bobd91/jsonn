@@ -1,3 +1,3 @@
 project('jsonn', 'c')
-executable('tests', ['tests/tests.c', 'src/jsonn.c'], 'src')
+library('jsonn', 'src/jsonn.c')
 

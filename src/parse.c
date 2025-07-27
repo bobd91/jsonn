@@ -1,3 +1,4 @@
+
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
@@ -5,23 +6,7 @@
 
 #include "jsonn.h"
 
-typedef enum {
-        // Don't change as the first two values are used for stack bit
-        PARSE_OBJECT_MEMBER_SEPARATOR = 0,
-        PARSE_ARRAY_VALUE_SEPARATOR = 1,
-        PARSE_OBJECT_MEMBER_OPTIONAL,
-        PARSE_ARRAY_VALUE_OPTIONAL,
-        PARSE_OBJECT_MEMBER,
-        PARSE_ARRAY_VALUE,
-        PARSE_OBJECT_NAME_SEPARATOR,
-        PARSE_OBJECT_MEMBER_VALUE,
-        PARSE_OBJECT_TERMINATOR,
-        PARSE_ARRAY_TERMINATOR,
-        PARSE_NAME,
-        PARSE_VALUE,
-        PARSE_UNEXPECTED,
-        PARSE_EOF
-} parse_next;
+#include "value.c"
 
 static parse_next jsonn_init_next(jsonn_parser p)
 {
@@ -61,36 +46,51 @@ static int push_next(jsonn_parser p, parse_next next)
         return 1;
 }
 
-static jsonn_type begin_object(jsonn_parser p) 
+static uint8_t get_current_or_terminator(jsonn_parser p) 
+{
+        return p->terminator
+                ? p->terminator
+                : *p->current;
+}
+
+static void consume_current_or_terminator(jsonn_parser p)
+{
+        if(p->terminator)
+                p->terminator = '\0';
+        else
+                p->current++;
+}
+
+static jsonn_type parse_begin_object(jsonn_parser p) 
 {
         p->current++;
         return(push_next(p, PARSE_OBJECT_MEMBER_OPTIONAL))
                 ? JSONN_BEGIN_OBJECT
-                : JSONN_UNEXPECTED;
+                : error(p, JSONN_ERROR_STACKOVERFLOW);
 }
 
-static jsonn_type end_object(jsonn_parser p) 
+static jsonn_type parse_end_object(jsonn_parser p) 
 {
         consume_current_or_terminator(p);
         return(pop_next(p))
                 ? JSONN_END_OBJECT
-                : JSONN_UNEXPECTED;
+                : error(p, JSONN_ERROR_STACKUNDERFLOW);
 }
 
-static jsonn_type begin_array(jsonn_parser p) 
+static jsonn_type parse_begin_array(jsonn_parser p) 
 {
         p->current++;
         return(push_next(p, PARSE_ARRAY_VALUE_OPTIONAL))
                 ? JSONN_BEGIN_ARRAY
-                : JSONN_UNEXPECTED;
+                : error(p, JSONN_ERROR_STACKOVERFLOW);
 }
 
-static jsonn_type end_array(jsonn_parser p) 
+static jsonn_type parse_end_array(jsonn_parser p) 
 {
         consume_current_or_terminator(p);
         return(pop_next(p))
                 ? JSONN_END_ARRAY
-                : JSONN_UNEXPECTED;
+                : error(p, JSONN_ERROR_STACKUNDERFLOW);
 }
 
 static jsonn_type parse_literal(
@@ -99,8 +99,8 @@ static jsonn_type parse_literal(
                 jsonn_type type) 
 {
         // Already matched first character of literal
-        char *s1 = literal;
-        char *s2 = p->current;
+        uint8_t *s1 = (uint8_t *)literal;
+        uint8_t *s2 = p->current;
         while(*++s1 == *++s2 && *s1)
                 ;
         // If we are at the null at the end of literal then we found it
@@ -108,24 +108,24 @@ static jsonn_type parse_literal(
                 p->current = s2;
                 return type;
         }
-        return JSONN_UNEXPECTED;
+        return parse_error(p);
 }
 
-static jsonn_type parse_value(jsonn_parser p, jsonn_value *result) 
+static jsonn_type parse_value(jsonn_parser p) 
 {
         if(p->current < p->last) {
-                switch(p->current) {
+                switch(*p->current) {
                 case '"':
-                        return parse_string(p, 1, result);
+                        return parse_string(p, 1);
                 case '\'':
                         if(p->flags & FLAG_SINGLE_QUOTES)
-                                return parse_string(p, 1, result);
+                                return parse_string(p, 1);
                         break;
 
                 case '{':
-                        return begin_object(p);
+                        return parse_begin_object(p);
                 case '[':
-                        return begin_array(p);
+                        return parse_begin_array(p);
                 case 'n':
                         return parse_literal(p, "null", JSONN_NULL);
                 case 'f':
@@ -143,53 +143,39 @@ static jsonn_type parse_value(jsonn_parser p, jsonn_value *result)
                 case '7':
                 case '8':
                 case '9':
-                        return parse_number(p, result);
+                        return parse_number(p);
                 default:
                         if(p->flags & FLAG_UNQUOTED_STRINGS)
-                                return parse_string(p, 0, result);
+                                return parse_string(p, 0);
                         break;
                 }
-                return JSONN_UNEXPECTED;
+                return parse_error(p);
         }
         return JSONN_EOF;
 }
 
-static jsonn_type parse_array_terminator(jsonn_parser p, jsonn_value *result) 
+static jsonn_type parse_array_terminator(jsonn_parser p) 
 {
         if(p->current < p->last) {
                 uint8_t byte = get_current_or_terminator(p);
                 if(']' == byte) {
                         consume_current_or_terminator(p);
-                        return end_array(p);
+                        return parse_end_array(p);
                 }
         }
-        return JSONN_UNEXPECTED;
+        return parse_error(p);
 }
 
-static jsonn_type parse_object_terminator(jsonn_parser p, jsonn_value *result) 
+static jsonn_type parse_object_terminator(jsonn_parser p) 
 {
         if(p->current < p->last) {
                 uint8_t byte = get_current_or_terminator(p);
                 if('}' == byte) {
                         consume_current_or_terminator(p);
-                        return end_object(p);
+                        return parse_end_object(p);
                 }
         }
-        return JSONN_UNEXPECTED;
-}
-
-static uint8_t get_current_or_terminator(jsonn_parser p) 
-{
-        return p->terminator
-                ? p->terminator
-                : p->current;
-
-static void consume_current_or_terminator(jsonn_parser p)
-{
-        if(p->terminator)
-                p->terminator = NULL;
-        else
-                p->current++;
+        return parse_error(p);
 }
 
 static parse_next consume_array_value_separator(jsonn_parser p)
@@ -208,13 +194,13 @@ static parse_next consume_array_value_separator(jsonn_parser p)
 
                 default:
                         // not separator so don't consume
-                        if(flag & FLAG_OPTIONAL_COMMAS)
+                        if(p->flags & FLAG_OPTIONAL_COMMAS)
                                 return PARSE_ARRAY_VALUE;
                 }
         }
         return (p->flags & FLAG_IS_ARRAY)
                 ? PARSE_EOF
-                : PARSE_UNEXPECTED;
+                : parse_error(p);
 }
 
 static parse_next consume_object_member_separator(jsonn_parser p) 
@@ -233,13 +219,13 @@ static parse_next consume_object_member_separator(jsonn_parser p)
 
                 default:
                         // not separator so don't consume
-                        if(flag & FLAG_OPTIONAL_COMMAS)
+                        if(p->flags & FLAG_OPTIONAL_COMMAS)
                                 return PARSE_OBJECT_MEMBER;
                 }
         }
         return (p->flags & FLAG_IS_OBJECT)
                 ? PARSE_EOF
-                : PARSE_UNEXPECTED;
+                : parse_error(p);
 }
 
 static parse_next consume_object_name_separator(jsonn_parser p) 
@@ -251,12 +237,12 @@ static parse_next consume_object_name_separator(jsonn_parser p)
                         return PARSE_OBJECT_MEMBER_VALUE;
                 }
         }
-        return PARSE_UNEXPECTED;
+        return parse_error(p);
 }
 
 static int is_valid(jsonn_type type) 
 {
-        return type != JSONN_UNEXPECTED;
+        return type != JSONN_ERROR;
 }
 
 static int is_value(jsonn_type type) 
@@ -269,7 +255,7 @@ static int is_value(jsonn_type type)
                 || type == JSONN_STRING;
 }
 
-static jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result)
+static jsonn_type jsonn_next(jsonn_parser p)
 {
         jsonn_type ret;
         while(1) {
@@ -277,16 +263,18 @@ static jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result)
                 int optional = 1; // are values/pairs required?
                 switch(p->next) {
 
+                // bare value with no surrounding {} or []
                 case PARSE_VALUE:
-                        ret = parse_value(p, result);
+                        // {} [] will set next
+                        // otherwise we should be at EOF
                         p->next = PARSE_EOF;
-                        return ret;
+                        return parse_value(p);
 
                 case PARSE_ARRAY_VALUE:
                         optional = 0;
                         // fall through
                 case PARSE_ARRAY_VALUE_OPTIONAL:
-                        ret = parse_value(p, result);
+                        ret = parse_value(p);
                         if(is_valid(ret)) {
                                 if(is_value(ret))
                                         p->next = PARSE_ARRAY_VALUE_SEPARATOR;
@@ -302,13 +290,13 @@ static jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result)
                         break;
 
                 case PARSE_ARRAY_TERMINATOR:
-                        return parse_array_terminator(p, result);
+                        return parse_array_terminator(p);
 
                 case PARSE_OBJECT_MEMBER:
                         optional = 0;
                         // fall through
                 case PARSE_OBJECT_MEMBER_OPTIONAL:
-                        ret = parse_name(p, result);
+                        ret = parse_key(p);
                         if(is_valid(ret)) {
                                 p->next = PARSE_OBJECT_NAME_SEPARATOR;
                                 return ret;
@@ -323,7 +311,7 @@ static jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result)
                         break;
 
                 case PARSE_OBJECT_MEMBER_VALUE:
-                        ret = parse_value(p, result);
+                        ret = parse_value(p);
                         if(is_valid(ret)) {
                                 if(is_value(ret)) {
                                         p->next = PARSE_OBJECT_MEMBER_SEPARATOR;
@@ -337,16 +325,15 @@ static jsonn_type jsonn_parse_next(jsonn_parser p, jsonn_value *result)
                         break;
 
                 case PARSE_OBJECT_TERMINATOR:
-                        return parse_object_terminator(result);
+                        return parse_object_terminator(p);
 
                 case PARSE_EOF:
                         if(p->current == p->last)
                                 return JSONN_EOF;
-                        else
-                                return JSONN_UNEXPECTED;
+                        return parse_error(p);
 
                 default:
-                        return JSONN_UNEXPECTED;
+                        return parse_error(p);
                 }
         }
 }
