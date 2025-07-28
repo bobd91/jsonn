@@ -109,15 +109,19 @@ jsonn_parser pp;
 
 int main(int argc, char *argv[])
 {
-        jsonn_error e;
-        jsonn_parser p = jsonn_new(NULL, &e);
+        jsonn_config c = jsonn_config_get();
+        c.flags |=   JSONN_FLAG_COMMENTS
+                   | JSONN_FLAG_TRAILING_COMMAS
+                   | JSONN_FLAG_REPLACE_ILLFORMED_UTF8
+                   | JSONN_FLAG_OPTIONAL_COMMAS
+                   | JSONN_FLAG_UNQUOTED_KEYS
+                   | JSONN_FLAG_UNQUOTED_STRINGS
+                   | JSONN_FLAG_ESCAPE_CHARACTERS
+                   | JSONN_FLAG_IS_ARRAY
+                   ;
 
-        if(!p) {
-                printf("Not ok: %d : %ld \n", e.code, e.at);
-                return 1;
-        }
+        jsonn_parser p = jsonn_new(&c);
 
-        puts("ok");
         puts(argv[1]);
         pp = p;
 
@@ -129,7 +133,7 @@ int main(int argc, char *argv[])
         if(res == JSONN_EOF)
                 printf("\n\nResult EOF: %d\n", res);
         else
-                printf("\n\nResult ???: %d\n", res);
+                printf("\n\nResult : %d (%d[%ld])\n", res, p->result.is.error.code, p->result.is.error.at);
 
         jsonn_free(p);
 

@@ -3,6 +3,21 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifndef JSONN_STACK_SIZE
+#define JSONN_STACK_SIZE 1024
+#endif
+
+#define JSONN_FLAG_REPLACE_ILLFORMED_UTF8     0x01
+#define JSONN_FLAG_COMMENTS                   0x02
+#define JSONN_FLAG_TRAILING_COMMAS            0x04
+#define JSONN_FLAG_SINGLE_QUOTES              0x08
+#define JSONN_FLAG_UNQUOTED_KEYS              0x10
+#define JSONN_FLAG_UNQUOTED_STRINGS           0x20
+#define JSONN_FLAG_ESCAPE_CHARACTERS          0x40
+#define JSONN_FLAG_OPTIONAL_COMMAS            0x80
+#define JSONN_FLAG_IS_OBJECT                  0x100
+#define JSONN_FLAG_IS_ARRAY                   0x200
+
 typedef enum {
         JSONN_BEGIN,
         JSONN_FALSE,
@@ -57,6 +72,11 @@ struct jsonn_context;
 typedef struct jsonn_context *jsonn_parser;
 
 typedef struct {
+        size_t stack_size;
+        int16_t flags;
+} jsonn_config;
+
+typedef struct {
         int (*j_boolean)(jsonn_parser, int);
         int (*j_null)(jsonn_parser);
         int (*j_long)(jsonn_parser, int64_t);
@@ -72,7 +92,10 @@ typedef struct {
 
 void jsonn_allocator(void *(*malloc)(size_t), void (*free)(void *));
 
-jsonn_parser jsonn_new(const char* config, jsonn_error *error);
+jsonn_config jsonn_config_get();
+void jsonn_config_set(jsonn_config *config);
+
+jsonn_parser jsonn_new(/* nullable */ jsonn_config *config);
 void jsonn_free(jsonn_parser p);
 
 jsonn_type jsonn_parse(
@@ -82,7 +105,5 @@ jsonn_type jsonn_parse(
                 /* nullable */ jsonn_callbacks *callbacks);
 
 jsonn_type jsonn_parse_next(jsonn_parser parser);
-
-jsonn_result *jsonn_parse_result(jsonn_parser parser);
 
 /* TODO: _find, _find_any, ... ? */

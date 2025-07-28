@@ -7,6 +7,7 @@
 #include "jsonn.h"
 #include "parse.h"
 
+#include "error.c"
 #include "config.c"
 #include "utf8.c"
 
@@ -23,12 +24,12 @@ static void consume_line_comment(jsonn_parser p) {
 }
 
 static void consume_block_comment(jsonn_parser p) {
-        while(1) {
-                while(p->current < p->last 
-                                && '*' != *p->current)
-                        p->current++;
-                if('/' == *p->current) 
+        while(p->current < p->last) {
+                if('*' == *p->current && '/' == *(p->current + 1)) {
+                        p->current ++;
                         return;
+                }
+                p->current++;
         }
 }
 
@@ -40,8 +41,9 @@ static void consume_whitespace(jsonn_parser p) {
                 case '\r':
                 case '\t':
                         break;
+
                 case '/':
-                        if(!(p->flags & FLAG_COMMENTS)) return;
+                        if(!(p->flags & JSONN_FLAG_COMMENTS)) return;
 
                         char next_byte = *(1 + p->current);
                         switch(next_byte) {
@@ -49,15 +51,21 @@ static void consume_whitespace(jsonn_parser p) {
                                 p->current += 2;
                                 consume_line_comment(p);
                                 break;
+
                         case '*':
                                 p->current += 2;
                                 consume_block_comment(p);
                                 break;
+
                         default:
                                 return;
+
                         }
+                        break;
+
                 default:
                         return;
+
                 }
                 p->current++;
         }
@@ -184,7 +192,7 @@ static uint8_t next_special(jsonn_parser p, char *specials)
  * Parse JSON string into utf-8
  *
  * Returns JSONN_STRING or JSONN_KEY if the string was converted to utf8
- *         JSONN_UNEXPECTED if the string could not be converted 
+ *         JSONN_ERROR if the string could not be converted 
  * The actual string is set in jsonn_result
  *
  * The returned string is in the same place as it is in the JSON string
@@ -197,14 +205,14 @@ static uint8_t next_special(jsonn_parser p, char *specials)
  *
  * Any non-ascii utf-8 sequences are checked to see if they are well formed.
  * If illformed, and the replace_illformed_utf8 flag is not set, then 
- * JSONN_UNEXPECTED will be returned.
+ * JSONN_ERROR will be returned.
  * If the flag is set then illformed utf-8 will be replaced
  * with the utf-8 encoding of the Unicode Replacement Character.
  *
  * As the encoded replacement character is 3 bytes and illformed bytes can
  * be 1-4 bytes there is a chance that multiple replacements will overflow
  * the original JSON string.  If situation arrises then no replacement
- * will be made and JSONN_UNEXPECTED will be returned.
+ * will be made and JSONN_ERROR will be returned.
  */
 static jsonn_type parse_string(jsonn_parser p, jsonn_type type) 
 {
@@ -227,12 +235,12 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
         default:
                 switch(type) {
                 case JSONN_STRING:
-                        if(p->flags & FLAG_UNQUOTED_STRINGS)
+                        if(p->flags & JSONN_FLAG_UNQUOTED_STRINGS)
                                 specials = STRING_SPECIALS_STRING;
                         break;
 
                 case JSONN_KEY:
-                        if(p->flags & FLAG_UNQUOTED_KEYS)
+                        if(p->flags & JSONN_FLAG_UNQUOTED_KEYS)
                                 specials = STRING_SPECIALS_KEY;
                         break;
 
@@ -318,7 +326,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                                 break;
 
                         default:
-                                if(p->flags & FLAG_ESCAPE_CHARACTERS)
+                                if(p->flags & JSONN_FLAG_ESCAPE_CHARACTERS)
                                         *p->write++ = byte;
                                 else
                                         return parse_error(p);
@@ -326,6 +334,11 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                         }
                         break;
 
+                case '\0':
+                        // Is this NULL byte in string or EOF?
+                        if(p->current == p->last)
+                                break;
+                        // fallthrough
                 default:
                         if(0x20 > byte) {
                                 return parse_error(p);
@@ -336,15 +349,19 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
 
                 if(illformed_utf8) {
                         // replace illformed utf8 if configured and there is room for it
-                        if(p->flags & FLAG_REPLACE_ILLFORMED_UTF8
+                        if(p->flags & JSONN_FLAG_REPLACE_ILLFORMED_UTF8
                                         && p->current - p->write > replacement_length) {
                                 write_replacement_character(p);
                                 illformed_utf8 = 0;
                         } else {
-                                error(p, JSONN_ERROR_ILLFORMED_UTF8);
+                                return error(p, JSONN_ERROR_ILLFORMED_UTF8);
                         }
                 }
         }
+        // eof in string is end of string if not quoted
+        if(!quoted)
+                return set_string_result(p, start, p->write - start - 1, type);
+
         return JSONN_EOF;
 }
 
