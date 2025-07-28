@@ -230,7 +230,6 @@ static jsonn_type config_parse(jsonn_parser p, parser_config *c)
                         return config_error(p);
 
                 key = (char *)p->result.is.string.bytes;
-printf("key = \"%s\"\n", key);
                 if(!strcmp(KEY_STACK_SIZE, key)) {
                         value_type = jsonn_parse_next(p);
                         if(JSONN_LONG != value_type)
@@ -239,17 +238,14 @@ printf("key = \"%s\"\n", key);
                         c->stack_size = p->result.is.number.long_value;
                         if(c->stack_size < 0) 
                                 return config_error(p);
-printf("stack size = %ld\n", c->stack_size);
                         
                 } else if(0 != (flag = config_flag(key))) {
                         value_type = jsonn_parse_next(p);
                         switch(value_type) {
                         case JSONN_TRUE:
-printf("flag = true\n");
                                 c->flags |= flag;
                                 break;
                         case JSONN_FALSE:
-printf("flag = false\n");
                                 c->flags &= ~flag;
                                 break;
                         default:

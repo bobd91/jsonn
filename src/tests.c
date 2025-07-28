@@ -4,19 +4,19 @@
 int printp(jsonn_parser p) 
 {
         uint8_t *s = p->start;
-        while(s < p->last) {
+        while(s <= p->last) {
                 printf("%c", (*s != '\0') ? *s : '^');
                 s++;
         }
         puts("");
         s = p->start;
-        while(s < p->last) {
+        while(s <= p->last) {
                 printf("%c", (s == p->current) ? 'C' : ' ');
                 s++;
         }
         puts("");
         s = p->start;
-        while(s < p->last) {
+        while(s <= p->last) {
                 printf("%c", (s == p->write) ? 'W' : ' ');
                 s++;
         }
@@ -105,10 +105,12 @@ jsonn_callbacks callbacks = {
         .j_error = do_error
 };
 
+jsonn_parser pp;
+
 int main(int argc, char *argv[])
 {
         jsonn_error e;
-        jsonn_parser p = jsonn_new("comments:true,trailing_commas:true", &e);
+        jsonn_parser p = jsonn_new(NULL, &e);
 
         if(!p) {
                 printf("Not ok: %d : %ld \n", e.code, e.at);
@@ -116,13 +118,18 @@ int main(int argc, char *argv[])
         }
 
         puts("ok");
+        puts(argv[1]);
+        pp = p;
 
         uint8_t buf[1024];
         char *json = argv[1];
         size_t len = strlen(json);
         memcpy(buf, json, len + 1);
         jsonn_type res = jsonn_parse(p, buf, len, &callbacks);
-        printf("\n\nResult: %d\n", res);
+        if(res == JSONN_EOF)
+                printf("\n\nResult EOF: %d\n", res);
+        else
+                printf("\n\nResult ???: %d\n", res);
 
         jsonn_free(p);
 

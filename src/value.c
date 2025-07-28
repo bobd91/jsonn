@@ -108,14 +108,21 @@ static int parse_unicode_escapes(jsonn_parser p) {
         if(u < 0) 
                 return -1;
 
-        if(is_first_surrogate(u)) {
-                uint8_t *m = p->current;
-                int u2 = skip_sequence(p, (uint8_t *)"\\u") ? parse_4hexdig(p) : -1;
-                if(is_second_surrogate(u2)) {
-                        u = surrogate_pair_to_codepoint(u, u2);
+        if(is_surrogate(u)) {
+                if(is_first_surrogate(u)) {
+                        uint8_t *m = p->current;
+                        int u2 = skip_sequence(p, (uint8_t *)"\\u") ? parse_4hexdig(p) : -1;
+                        if(is_second_surrogate(u2)) {
+                                u = surrogate_pair_to_codepoint(u, u2);
+                        } else {
+                                // 1st not followed by second is illformed
+                                // reset current to skip 1st and return invalid
+                                p->current = m;
+                                return -1;
+                        }
                 } else {
-                        // This is not the surrogate you are looking for ...
-                        p->current = m;
+                        // surrogate but not a valid 1st in pair
+                        return -1;
                 }
         }
         return u;
@@ -317,6 +324,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                                         return parse_error(p);
                                 break;
                         }
+                        break;
 
                 default:
                         if(0x20 > byte) {

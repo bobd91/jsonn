@@ -128,23 +128,22 @@ static int jsonn_config_parse(
         // config       - the data generated from parsing config_text
 
         // cc           - config for the parser that is parsing config_text
-        const parser_config *cc = config_config();
-
-        jsonn_parser config_text_parser =
-                jsonn_alloc_parser(cc->stack_size, (char *)config_text);
 
         // Load default config for jsonn parser
         config_copy_defaults(config);
 
+        if(!config_text || !*config_text)
+                // no config, default parser
+                return 1;
+
+        const parser_config *cc = config_config();
+        jsonn_parser config_text_parser =
+                jsonn_alloc_parser(cc->stack_size, (char *)config_text);
+
         if(!config_text_parser) {
-                if(config_text && *config_text) {
-                        // we have a config but no parser!
                         error->code = JSONN_ERROR_ALLOC;
                         error->at = 0;
                         return 0;
-                } else {
-                        return 1;
-                }
         }
 
         config_text_parser->flags = cc->flags;

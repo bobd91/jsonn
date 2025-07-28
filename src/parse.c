@@ -1,4 +1,4 @@
-
+#include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
@@ -18,13 +18,29 @@ static parse_next jsonn_init_next(jsonn_parser p)
                 return PARSE_VALUE;
 }
 
+static parse_next jsonn_reinit_next(jsonn_parser p)
+{
+        if(p->flags & FLAG_IS_OBJECT)
+                return PARSE_OBJECT_MEMBER_SEPARATOR;
+        else if(p->flags & FLAG_IS_ARRAY)
+                return PARSE_ARRAY_VALUE_SEPARATOR;
+        else
+                return PARSE_EOF;
+}
+
 static int pop_next(jsonn_parser p) 
 {
-        size_t sp = p->stack_pointer;
-        if(sp == 0)
+        if(p->stack_pointer == 0)
                 return 0;
-        p->stack_pointer--;
-        p->next = 0x01 & p->stack[sp >> 3] >> (sp & 0x07);
+        size_t sp = --p->stack_pointer;
+        if(sp == 0) {
+                // back to no stack, need to calculate base state
+                p->next = jsonn_reinit_next(p);
+        } else {
+                // pop state off stack
+                p->next = 0x01 & p->stack[sp >> 3] >> (sp & 0x07);
+        }
+
         return 1;
 }
 
@@ -35,10 +51,11 @@ static int push_next(jsonn_parser p, parse_next next)
                 return 0;
         int offset = sp >> 3;
         int mask = 1 << (sp & 0x07);
-
-        if(next)
+        
+        if(p->next == PARSE_ARRAY_VALUE_OPTIONAL
+                        || p->next == PARSE_ARRAY_VALUE)
                 p->stack[offset] |= mask;
-        else
+        else 
                 p->stack[offset] &= ~mask;
 
         p->stack_pointer++;
@@ -71,7 +88,6 @@ static jsonn_type parse_begin_object(jsonn_parser p)
 
 static jsonn_type parse_end_object(jsonn_parser p) 
 {
-        consume_current_or_terminator(p);
         return(pop_next(p))
                 ? JSONN_END_OBJECT
                 : error(p, JSONN_ERROR_STACKUNDERFLOW);
@@ -87,7 +103,6 @@ static jsonn_type parse_begin_array(jsonn_parser p)
 
 static jsonn_type parse_end_array(jsonn_parser p) 
 {
-        consume_current_or_terminator(p);
         return(pop_next(p))
                 ? JSONN_END_ARRAY
                 : error(p, JSONN_ERROR_STACKUNDERFLOW);
@@ -116,10 +131,10 @@ static jsonn_type parse_value(jsonn_parser p)
         if(p->current < p->last) {
                 switch(*p->current) {
                 case '"':
-                        return parse_string(p, 1);
+                        return parse_string(p, JSONN_STRING);
                 case '\'':
                         if(p->flags & FLAG_SINGLE_QUOTES)
-                                return parse_string(p, 1);
+                                return parse_string(p, JSONN_STRING);
                         break;
 
                 case '{':
@@ -146,7 +161,7 @@ static jsonn_type parse_value(jsonn_parser p)
                         return parse_number(p);
                 default:
                         if(p->flags & FLAG_UNQUOTED_STRINGS)
-                                return parse_string(p, 0);
+                                return parse_string(p, JSONN_STRING);
                         break;
                 }
                 return parse_error(p);
