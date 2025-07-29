@@ -23,8 +23,8 @@ typedef enum {
         JSONN_FALSE,
         JSONN_NULL,
         JSONN_TRUE,
-        JSONN_LONG,
-        JSONN_DOUBLE,
+        JSONN_INTEGER,
+        JSONN_REAL,
         JSONN_STRING,
         JSONN_KEY,
         JSONN_BEGIN_ARRAY,
@@ -41,7 +41,8 @@ typedef enum {
         JSONN_ERROR_CONFIG,
         JSONN_ERROR_ALLOC,
         JSONN_ERROR_PARSE,
-        JSONN_ERROR_ILLFORMED_UTF8,
+        JSONN_ERROR_NUMBER,
+        JSONN_ERROR_UTF8,
         JSONN_ERROR_STACKUNDERFLOW,
         JSONN_ERROR_STACKOVERFLOW
 } jsonn_error_code;
@@ -52,8 +53,8 @@ typedef struct {
 } jsonn_string;
 
 typedef union {
-        uint64_t long_value;
-        double double_value;
+        uint64_t integer;
+        double real;
 } jsonn_number;
 
 typedef struct {
@@ -80,8 +81,8 @@ typedef struct {
 typedef struct {
         int (*j_boolean)(jsonn_parser, int);
         int (*j_null)(jsonn_parser);
-        int (*j_long)(jsonn_parser, int64_t);
-        int (*j_double)(jsonn_parser, double);
+        int (*j_integer)(jsonn_parser, int64_t);
+        int (*j_real)(jsonn_parser, double);
         int (*j_string)(jsonn_parser, jsonn_string *);
         int (*j_key)(jsonn_parser, jsonn_string *);
         int (*j_begin_array)(jsonn_parser);

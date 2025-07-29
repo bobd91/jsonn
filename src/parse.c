@@ -63,21 +63,6 @@ static int push_next(jsonn_parser p, parse_next next)
         return 1;
 }
 
-static uint8_t get_current_or_terminator(jsonn_parser p) 
-{
-        return p->terminator
-                ? p->terminator
-                : *p->current;
-}
-
-static void consume_current_or_terminator(jsonn_parser p)
-{
-        if(p->terminator)
-                p->terminator = '\0';
-        else
-                p->current++;
-}
-
 static jsonn_type parse_begin_object(jsonn_parser p) 
 {
         p->current++;
@@ -173,10 +158,9 @@ static jsonn_type parse_value(jsonn_parser p, int optional)
 
 static jsonn_type parse_array_terminator(jsonn_parser p) 
 {
-        if(p->current < p->last || p->terminator) {
-                uint8_t byte = get_current_or_terminator(p);
-                if(']' == byte) {
-                        consume_current_or_terminator(p);
+        if(p->current < p->last) {
+                if(']' == *p->current) {
+                        p->current++;
                         return parse_end_array(p);
                 }
         }
@@ -185,10 +169,9 @@ static jsonn_type parse_array_terminator(jsonn_parser p)
 
 static jsonn_type parse_object_terminator(jsonn_parser p) 
 {
-        if(p->current < p->last || p->terminator) {
-                uint8_t byte = get_current_or_terminator(p);
-                if('}' == byte) {
-                        consume_current_or_terminator(p);
+        if(p->current < p->last) {
+                if('}' == *p->current) {
+                        p->current++;
                         return parse_end_object(p);
                 }
         }
@@ -197,11 +180,10 @@ static jsonn_type parse_object_terminator(jsonn_parser p)
 
 static parse_next consume_array_value_separator(jsonn_parser p)
 {
-        if(p->current < p->last || p->terminator) {
-                uint8_t byte = get_current_or_terminator(p);
-                switch(byte) {
+        if(p->current < p->last) {
+                switch(*p->current) {
                 case ',':
-                        consume_current_or_terminator(p);
+                        p->current++;
                         return (p->flags && JSONN_FLAG_TRAILING_COMMAS)
                                 ? PARSE_ARRAY_VALUE_OPTIONAL
                                 : PARSE_ARRAY_VALUE;
@@ -222,11 +204,10 @@ static parse_next consume_array_value_separator(jsonn_parser p)
 
 static parse_next consume_object_member_separator(jsonn_parser p) 
 {
-        if(p->current < p->last || p->terminator) {
-                uint8_t byte = get_current_or_terminator(p);
-                switch(byte) {
+        if(p->current < p->last) {
+                switch(*p->current) {
                 case ',':
-                        consume_current_or_terminator(p);
+                        p->current++;
                         return (p->flags & JSONN_FLAG_TRAILING_COMMAS)
                                 ? PARSE_OBJECT_MEMBER_OPTIONAL
                                 : PARSE_OBJECT_MEMBER;
@@ -247,10 +228,9 @@ static parse_next consume_object_member_separator(jsonn_parser p)
 
 static parse_next consume_object_name_separator(jsonn_parser p) 
 {
-        if(p->current < p->last || p->terminator) {
-                uint8_t byte = get_current_or_terminator(p);
-                if(':' == byte) {
-                        consume_current_or_terminator(p);
+        if(p->current < p->last) {
+                if(':' == *p->current) {
+                        p->current++;
                         return PARSE_OBJECT_MEMBER_VALUE;
                 }
         }
@@ -272,8 +252,8 @@ static int is_value(jsonn_type type)
         return type == JSONN_FALSE
                 || type == JSONN_NULL
                 || type == JSONN_TRUE
-                || type == JSONN_LONG
-                || type == JSONN_DOUBLE
+                || type == JSONN_INTEGER
+                || type == JSONN_REAL
                 || type == JSONN_STRING;
 }
 

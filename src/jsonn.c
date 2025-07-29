@@ -25,13 +25,13 @@ static jsonn_type jsonn_parse_callback(
                         abort = callbacks->j_null 
                                 && callbacks->j_null(p);
                         break;
-                case JSONN_LONG:
-                        abort = callbacks->j_long
-                                && callbacks->j_long(p, p->result.is.number.long_value);
+                case JSONN_INTEGER:
+                        abort = callbacks->j_integer
+                                && callbacks->j_integer(p, p->result.is.number.integer);
                         break;
-                case JSONN_DOUBLE:
-                        abort = callbacks->j_double 
-                                && callbacks->j_double(p, p->result.is.number.double_value);
+                case JSONN_REAL:
+                        abort = callbacks->j_real 
+                                && callbacks->j_real(p, p->result.is.number.real);
                         break;
                 case JSONN_STRING:
                         abort = callbacks->j_string
@@ -108,7 +108,6 @@ jsonn_type jsonn_parse(
         p->last = json + length;
         *p->last = '\0';
         p->stack_pointer = 0;
-        p->terminator = '\0';
 
         // Skip leading byte order mark
         p->current += bom_bytes(p);

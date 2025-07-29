@@ -36,13 +36,13 @@ int do_null(jsonn_parser p)
         return 0;
 }
 
-int do_long(jsonn_parser p, int64_t l) 
+int do_integer(jsonn_parser p, int64_t l) 
 {
         printf("%ld,", l);
         return 0;
 }
 
-int do_double(jsonn_parser p, double d) 
+int do_real(jsonn_parser p, double d) 
 {
         printf("%lf,", d);
         return 0;
@@ -94,8 +94,8 @@ int do_error(jsonn_parser p, jsonn_error *e)
 jsonn_callbacks callbacks = {
         .j_boolean = do_boolean,
         .j_null = do_null,
-        .j_long = do_long,
-        .j_double = do_double,
+        .j_integer = do_integer,
+        .j_real = do_real,
         .j_string = do_string,
         .j_key = do_key,
         .j_begin_array = do_begin_array,

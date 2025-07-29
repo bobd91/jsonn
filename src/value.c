@@ -137,16 +137,16 @@ static int parse_unicode_escapes(jsonn_parser p) {
 }
 
 
-static jsonn_type set_long_result(jsonn_parser p, long long_value) 
+static jsonn_type set_integer_result(jsonn_parser p, long integer) 
 {
-        p->result.is.number.long_value = long_value;
-        return JSONN_LONG;
+        p->result.is.number.integer = integer;
+        return JSONN_INTEGER;
 }
 
-static jsonn_type set_double_result(jsonn_parser p, double double_value) 
+static jsonn_type set_real_result(jsonn_parser p, double real) 
 {
-        p->result.is.number.double_value = double_value;
-        return JSONN_DOUBLE;
+        p->result.is.number.real = real;
+        return JSONN_REAL;
 }
 
 static jsonn_type set_string_result(
@@ -255,7 +255,6 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                 return parse_error(p);
 
         int illformed_utf8 = 0;
-        p->terminator = '\0';
         uint8_t *start = p->current;
         p->write = p->current;
 
@@ -269,16 +268,10 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                 case '}':
                 case ']':
                 case ':':
-                        // terminating unquoted string with \0
-                        // will overwrite this byte
-                        // so store it for next parse
-                        p->terminator = byte;
-                // fall through
                 case '"':
                 case '\'':
                 case ' ':
                         p->current++;
-                        *p->write++ = '\0';
                         return set_string_result(p, start, p->write - start - 1, type);
 
                 case '\\':
@@ -356,7 +349,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                                 write_replacement_character(p);
                                 illformed_utf8 = 0;
                         } else {
-                                return error(p, JSONN_ERROR_ILLFORMED_UTF8);
+                                return error(p, JSONN_ERROR_UTF8);
                         }
                 }
         }
@@ -378,58 +371,97 @@ static jsonn_type parse_key(jsonn_parser p)
 
 
 /*
- * Parse JSON number as double or long
- * Return JSONN_DOUBLE or JSONN_LONG and set value into jsonn_result
+ * Parse JSON number as real or integer
+ * Return JSONN_REAL or JSONN_INTEGER and set value into jsonn_result
  * Return JSONN_ERROR if string cannot be parsed as a number
  *
- * JSON is much tighter about what numbers it allows that strtod that we
- * use for the actual conversion so we have to do a lot of validation.
- *
- * If double value can be convertted to long without loss 
- * and the input text does not contain a decimal point
- * then return the long value
+ * JSON is much tighter about what numbers it allows than the library functions
+ * strtod or strtol that we use to convert text to numbers 
+ * so we have to do a lot of sanity checking first.
  */
 static jsonn_type parse_number(jsonn_parser p) 
 {
         uint8_t *start = p->current;
-        uint8_t *double_end;
-        uint8_t *point;
-        uint64_t long_val;
-        double double_val;
+        uint8_t *end;
+        uint64_t integer;
+        double real;
+        int has_minus = 0;
+        int has_zero;
+        int int_digits;
+        int has_decimal = 0;
+        int frac_digits = 0;
+        int has_exp = 0;
+        int has_exp_sign = 0;
+        int exp_digits = 0;
 
-        if('-' == *p->current)
+        // sanity check
+        if('-' == *p->current) {
+                has_minus = 1;
+                p->current++;
+        }
+
+        has_zero = ('0' == *p->current);
+        
+        while(*p->current >= '0' &&  *p->current <= '9')
                 p->current++;
 
-        if('0' == *p->current) {
-                uint8_t byte = *(p->current + 1);
-                if('.' != byte && 'e' != byte && 'E' != byte) {
+        int_digits = p->current - start - has_minus;
+
+        if('.' == *p->current) {
+                has_decimal = 1;
+                p->current++;
+
+                while(*p->current >='0' && *p->current <= '9')
                         p->current++;
-                        return set_long_result(p, 0);
+
+                frac_digits = p->current 
+                        - start 
+                        - has_minus 
+                        - int_digits
+                        - 1;
+        }
+
+        if('e' == *p->current || 'E' == *p->current) {
+                has_exp = 1;
+                p->current++;
+                if('-' == *p->current || '+' == *p->current) {
+                        has_exp_sign = 1;
+                        p->current++;
                 }
-        }
 
-        if(!strchr("0123456789", *p->current)) {
+                while(*p->current >= '0' && *p->current <= '9')
+                        p->current++;
+
+                exp_digits = p->current
+                        - start 
+                        - has_minus
+                        - int_digits
+                        - has_decimal
+                        - frac_digits
+                        - has_exp_sign
+                        - 1;
+        }
+        
+        if(int_digits == 0
+                        || has_zero && int_digits > 1
+                        || has_decimal && frac_digits == 0
+                        || has_exp && exp_digits == 0) {
                 p->current = start;
-                return parse_error(p);
+                return number_error(p);
         }
 
-        errno = 0;
-        double_val = strtod((char *)start, (char **)&double_end);
-        if(errno) return parse_error(p);
-
-        // Check decimal point followed by digit
-        point = memchr(start, '.', double_end - start);
-        if(point && !strchr("0123456789", *(point + 1))) {
-                p->current = start;
-                return parse_error(p);
+        if(has_decimal || has_exp) {
+                errno = 0;
+                real= strtod((char *)start, (char **)&end);
+                if(errno) return number_error(p);
+                p->current = end;
+                return set_real_result(p, real);
+        } else {
+                errno = 0;
+                integer = strtol((char *)start, (char **)&end, 10);
+                if(errno) return number_error(p);
+                p->current = end;
+                return set_integer_result(p, integer);
         }
-
-        p->current = double_end;
-        long_val = (int64_t)double_val;
-        if(double_val == long_val 
-                        && !memchr(start, '.', double_end - start)) 
-                return set_long_result(p, long_val);
-        else
-                return set_double_result(p, double_val);
 }
 

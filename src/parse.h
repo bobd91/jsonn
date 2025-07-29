@@ -29,7 +29,6 @@ struct jsonn_context {
         uint8_t *write;
         parse_next next;
         uint16_t flags;
-        uint8_t terminator;
         jsonn_result result;
         size_t stack_size;
         size_t stack_pointer;
