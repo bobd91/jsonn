@@ -98,14 +98,12 @@ int main(int argc, char *argv[]) {
                 uint8_t *buf = malloc(length + 1);
                 if(buf) {
                         fread(buf, length, 1, fh);
-                        jsonn_parse(p, buf, length, &callbacks);
-                        jsonn_type t = jsonn_parse_next(p);
-                        do
-                                t = jsonn_parse_next(p);
-                        while(t != JSONN_EOF && t!= JSONN_ERROR);
+                        jsonn_type t = jsonn_parse(p, buf, length, &callbacks);
                         jsonn_free(p);
                         free(buf);
-                        return (t == JSONN_EOF) ? 0 : 1;
+                        int ret = (t == JSONN_EOF) ? 0 : 1;
+                        printf("Type: %d, Returned %d\n", t, ret);
+                        return ret;
                 }
                 fclose(fh);
         }

@@ -14,7 +14,7 @@ static jsonn_type jsonn_parse_callback(
 {
         jsonn_type type;
         int abort = 0;
-        while(JSONN_EOF != (type = jsonn_next(p)) && !abort) {
+        while(!abort && JSONN_EOF != (type = jsonn_next(p))) {
                 switch(type) {
                 case JSONN_FALSE:
                 case JSONN_TRUE:

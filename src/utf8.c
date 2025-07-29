@@ -129,11 +129,11 @@ static int write_utf8_sequence(jsonn_parser p)
                 codepoint = LO_4_BITS(byte);
                 bar = _2_BYTE_MAX;
                 cont = 2;
-        } else if(IS__3_BYTE_LEADER(byte)) {
+        } else if(IS__4_BYTE_LEADER(byte)) {
                 codepoint = LO_3_BITS(byte);
                 bar = _3_BYTE_MAX;
                 cont = 3;
-        } else if(!(byte <= _1_BYTE_MAX)) {
+        } else if(byte <= _1_BYTE_MAX) {
                 codepoint = byte;
                 bar = -1;
                 cont = 0;
@@ -150,7 +150,7 @@ static int write_utf8_sequence(jsonn_parser p)
 
         // If we got here then either all valid or all invalid
         // Could be an overlong encoding or an encoding of an invalid codepoint
-        if(codepoint <= bar || !is_valid_codepoint(byte)) 
+        if(codepoint <= bar || !is_valid_codepoint(codepoint)) 
                 return 0;
 
         // We have a well formed sequence
@@ -161,7 +161,7 @@ static int write_utf8_sequence(jsonn_parser p)
                         *p->write++ = start[i];
         }
 
-        return count;
+        return 1;
 }
 
 /*

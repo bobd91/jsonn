@@ -364,7 +364,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
         if(!quoted)
                 return set_string_result(p, start, p->write - start - 1, type);
 
-        return JSONN_ERROR;
+        return parse_error(p);
 }
 
 /*
@@ -400,13 +400,15 @@ static jsonn_type parse_number(jsonn_parser p)
         if('-' == *p->current)
                 p->current++;
 
-        if('0' == *p->current && '.' != *(p->current + 1)) {
-                p->current++;
-                return set_long_result(p, 0);
+        if('0' == *p->current) {
+                uint8_t byte = *(p->current + 1);
+                if('.' != byte && 'e' != byte && 'E' != byte) {
+                        p->current++;
+                        return set_long_result(p, 0);
+                }
         }
 
-        // no leading zero so next must be a digit
-        if(!strchr("123456789", *p->current)) {
+        if(!strchr("0123456789", *p->current)) {
                 p->current = start;
                 return parse_error(p);
         }

@@ -32,6 +32,7 @@ typedef enum {
         JSONN_BEGIN_OBJECT,
         JSONN_END_OBJECT,
         JSONN_EOF,
+        JSONN_OPTIONAL,
         JSONN_ERROR
 } jsonn_type;
 
