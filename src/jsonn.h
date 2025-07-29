@@ -79,17 +79,18 @@ typedef struct {
 } jsonn_config;
 
 typedef struct {
-        int (*j_boolean)(jsonn_parser, int);
-        int (*j_null)(jsonn_parser);
-        int (*j_integer)(jsonn_parser, int64_t);
-        int (*j_real)(jsonn_parser, double);
-        int (*j_string)(jsonn_parser, jsonn_string *);
-        int (*j_key)(jsonn_parser, jsonn_string *);
-        int (*j_begin_array)(jsonn_parser);
-        int (*j_end_array)(jsonn_parser);
-        int (*j_begin_object)(jsonn_parser);
-        int (*j_end_object)(jsonn_parser);
-        int (*j_error)(jsonn_parser, jsonn_error *);
+        void *ctx;
+        int (*j_boolean)(void *, int);
+        int (*j_null)(void *);
+        int (*j_integer)(void *, int64_t);
+        int (*j_real)(void *, double);
+        int (*j_string)(void *, jsonn_string *);
+        int (*j_key)(void *, jsonn_string *);
+        int (*j_begin_array)(void *);
+        int (*j_end_array)(void *);
+        int (*j_begin_object)(void *);
+        int (*j_end_object)(void *);
+        int (*j_error)(void *, jsonn_error *);
 } jsonn_callbacks;
 
 void jsonn_allocator(void *(*malloc)(size_t), void (*free)(void *));

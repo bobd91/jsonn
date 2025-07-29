@@ -3,67 +3,67 @@
 #include <stdint.h>
 
 #include "jsonn.c"
-int do_boolean(jsonn_parser p, int is_true) 
+int do_boolean(void *ctx, int is_true) 
 {
         printf("%s,", is_true ? "true" : "false");
         return 0;
 }
 
-int do_null(jsonn_parser p) 
+int do_null(void *ctx) 
 {
         printf("null,");
         return 0;
 }
 
-int do_integer(jsonn_parser p, int64_t l) 
+int do_integer(void *ctx, int64_t l) 
 {
         printf("%ld,", l);
         return 0;
 }
 
-int do_real(jsonn_parser p, double d) 
+int do_real(void *ctx, double d) 
 {
         printf("%lf,", d);
         return 0;
 }
 
-int do_string(jsonn_parser p, jsonn_string *s)
+int do_string(void *ctx, jsonn_string *s)
 {
         printf("\"%s\"", s->bytes);
         return 0;
 }
 
-int do_key(jsonn_parser p, jsonn_string *s) 
+int do_key(void *ctx, jsonn_string *s) 
 {
         printf("\"%s\":", s->bytes);
         return 0;
 }
 
-int do_begin_array(jsonn_parser p)
+int do_begin_array(void *ctx)
 {
         printf("[");
         return 0;
 }
 
-int do_end_array(jsonn_parser p)
+int do_end_array(void *ctx)
 {
         printf("]");
         return 0;
 }
 
-int do_begin_object(jsonn_parser p) 
+int do_begin_object(void *ctx) 
 {
         printf("{");
         return 0;
 }
 
-int do_end_object(jsonn_parser p) 
+int do_end_object(void *ctx) 
 {
         printf("}");
         return 0;
 }
 
-int do_error(jsonn_parser p, jsonn_error *e)
+int do_error(void *ctx, jsonn_error *e)
 {
         printf("\nError: %d [%ld]", e->code, e->at);
         return 0;
@@ -71,6 +71,7 @@ int do_error(jsonn_parser p, jsonn_error *e)
 
 
 jsonn_callbacks callbacks = {
+        .ctx = NULL,
         .j_boolean = do_boolean,
         .j_null = do_null,
         .j_integer = do_integer,
