@@ -18,7 +18,8 @@ typedef enum {
         PARSE_ARRAY_TERMINATOR,
         PARSE_NAME,
         PARSE_VALUE,
-        PARSE_EOF
+        PARSE_EOF,
+        PARSE_ERROR
 } parse_next;
 
 struct jsonn_context {

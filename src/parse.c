@@ -164,9 +164,8 @@ static jsonn_type parse_value(jsonn_parser p)
                                 return parse_string(p, JSONN_STRING);
                         break;
                 }
-                return parse_error(p);
         }
-        return JSONN_EOF;
+        return parse_error(p);
 }
 
 static jsonn_type parse_array_terminator(jsonn_parser p) 
@@ -215,7 +214,7 @@ static parse_next consume_array_value_separator(jsonn_parser p)
         }
         return (p->flags & JSONN_FLAG_IS_ARRAY)
                 ? PARSE_EOF
-                : parse_error(p);
+                : PARSE_ERROR;
 }
 
 static parse_next consume_object_member_separator(jsonn_parser p) 
@@ -240,7 +239,7 @@ static parse_next consume_object_member_separator(jsonn_parser p)
         }
         return (p->flags & JSONN_FLAG_IS_OBJECT)
                 ? PARSE_EOF
-                : parse_error(p);
+                : PARSE_ERROR;
 }
 
 static parse_next consume_object_name_separator(jsonn_parser p) 
@@ -252,7 +251,7 @@ static parse_next consume_object_name_separator(jsonn_parser p)
                         return PARSE_OBJECT_MEMBER_VALUE;
                 }
         }
-        return parse_error(p);
+        return PARSE_ERROR;
 }
 
 static int is_valid(jsonn_type type) 
@@ -347,6 +346,7 @@ static jsonn_type jsonn_next(jsonn_parser p)
                                 return JSONN_EOF;
                         return parse_error(p);
 
+                case PARSE_ERROR:
                 default:
                         return parse_error(p);
                 }

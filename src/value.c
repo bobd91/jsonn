@@ -227,11 +227,13 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                 break;
 
         case '\'':
-                specials = STRING_SPECIALS_SINGLE;
-                quoted = '\'';
-                p->current++;
-                break;
-
+                if(p->flags & JSONN_FLAG_SINGLE_QUOTES) {
+                        specials = STRING_SPECIALS_SINGLE;
+                        quoted = '\'';
+                        p->current++;
+                        break;
+                }
+                // fall through
         default:
                 switch(type) {
                 case JSONN_STRING:
@@ -362,25 +364,26 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
         if(!quoted)
                 return set_string_result(p, start, p->write - start - 1, type);
 
-        return JSONN_EOF;
+        return JSONN_ERROR;
 }
 
 /*
  * Calls parse_string to parse the key
- * If successful return JSONN_KEY, else JSONN_UNEXPECTED
+ * If successful return JSONN_KEY, else JSONN_ERROR
  */
 static jsonn_type parse_key(jsonn_parser p) 
 {
         return parse_string(p, JSONN_KEY);
 }
 
+
 /*
  * Parse JSON number as double or long
  * Return JSONN_DOUBLE or JSONN_LONG and set value into jsonn_result
- * Return JSONN_UNEXPECTED if string cannot be parsed as a number
+ * Return JSONN_ERROR if string cannot be parsed as a number
  *
- * JSON doesn't permit leading 0s or hex numbers but strtod does
- * so validate first.
+ * JSON is much tighter about what numbers it allows that strtod that we
+ * use for the actual conversion so we have to do a lot of validation.
  *
  * If double value can be convertted to long without loss 
  * and the input text does not contain a decimal point
@@ -390,19 +393,34 @@ static jsonn_type parse_number(jsonn_parser p)
 {
         uint8_t *start = p->current;
         uint8_t *double_end;
+        uint8_t *point;
+        uint64_t long_val;
         double double_val;
-        int64_t long_val;
 
         if('-' == *p->current)
                 p->current++;
 
-        // Leading 0 should not be followed by a digit or x or X
-        if('0' == *p->current && strchr("01234567890xX", *(p->current + 1)))
+        if('0' == *p->current && '.' != *(p->current + 1)) {
+                p->current++;
+                return set_long_result(p, 0);
+        }
+
+        // no leading zero so next must be a digit
+        if(!strchr("123456789", *p->current)) {
+                p->current = start;
                 return parse_error(p);
+        }
 
         errno = 0;
         double_val = strtod((char *)start, (char **)&double_end);
         if(errno) return parse_error(p);
+
+        // Check decimal point followed by digit
+        point = memchr(start, '.', double_end - start);
+        if(point && !strchr("0123456789", *(point + 1))) {
+                p->current = start;
+                return parse_error(p);
+        }
 
         p->current = double_end;
         long_val = (int64_t)double_val;

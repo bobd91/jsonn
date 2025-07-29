@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
                    | JSONN_FLAG_IS_ARRAY
                    ;
 
-        jsonn_parser p = jsonn_new(&c);
+        jsonn_parser p = jsonn_new(NULL); //&c);
 
         puts(argv[1]);
         pp = p;

@@ -31,8 +31,8 @@ typedef enum {
         JSONN_END_ARRAY,
         JSONN_BEGIN_OBJECT,
         JSONN_END_OBJECT,
-        JSONN_ERROR,
         JSONN_EOF,
+        JSONN_ERROR
 } jsonn_type;
 
 typedef enum {
