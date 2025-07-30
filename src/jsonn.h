@@ -19,7 +19,7 @@
 #define JSONN_FLAG_IS_ARRAY                   0x200
 
 typedef enum {
-        JSONN_START,
+        JSONN_ROOT,
         JSONN_FALSE,
         JSONN_NULL,
         JSONN_TRUE,
@@ -62,13 +62,11 @@ typedef struct {
         size_t at;
 } jsonn_error;
 
-typedef struct {
-        union {
-                jsonn_number number;
-                jsonn_string string;
-                jsonn_error error;
-        } is;
-} jsonn_result;
+typedef union {
+        jsonn_number number;
+        jsonn_string string;
+        jsonn_error error;
+} jsonn_value;
 
 struct jsonn_parser_s;
 typedef struct jsonn_parser_s *jsonn_parser;
@@ -78,19 +76,30 @@ typedef struct {
         int16_t flags;
 } jsonn_config;
 
+typedef struct jsonn_node_s *jsonn_node;
+struct jsonn_node_s {
+        jsonn_value is;
+        jsonn_type type;
+};
+
 typedef struct {
-        int (*j_boolean)(void *, int);
-        int (*j_null)(void *);
-        int (*j_integer)(void *, int64_t);
-        int (*j_real)(void *, double);
-        int (*j_string)(void *, jsonn_string *);
-        int (*j_key)(void *, jsonn_string *);
-        int (*j_begin_array)(void *);
-        int (*j_end_array)(void *);
-        int (*j_begin_object)(void *);
-        int (*j_end_object)(void *);
-        int (*j_error)(void *, jsonn_error *);
+        int (*boolean)(void *ctx, int is_true);
+        int (*null)(void *ctx);
+        int (*integer)(void *ctx, int64_t integer);
+        int (*real)(void *ctx, double real);
+        int (*string)(void *ctx, uint8_t *bytes, size_t length);
+        int (*key)(void *ctx, uint8_t *bytes , size_t length);
+        int (*begin_array)(void *ctx);
+        int (*end_array)(void *ctx);
+        int (*begin_object)(void *ctx);
+        int (*end_object)(void *ctx);
+        int (*error)(void *ctx, jsonn_error_code code, int at);
 } jsonn_callbacks;
+
+typedef struct {
+        jsonn_callbacks *callbacks;
+        void *ctx;
+} jsonn_visitor;
 
 void jsonn_allocator(void *(*malloc)(size_t), void (*free)(void *));
 
@@ -104,8 +113,19 @@ jsonn_type jsonn_parse(
                 jsonn_parser parser, 
                 uint8_t *json, 
                 size_t length,
-                jsonn_callbacks *callbacks,
-                void *ctx);
+                jsonn_visitor *visitor);
+
+jsonn_node jsonn_parse_tree(jsonn_parser p,
+                uint8_t *json,
+                size_t length);
+
+int jsonn_tree_visit(jsonn_node root, jsonn_visitor *visitor);
+
+void jsonn_tree_free(jsonn_node root);
+
+jsonn_visitor jsonn_tree_builder();
+jsonn_visitor jsonn_stringifier();
+jsonn_visitor jsonn_prettifier();
 
 void jsonn_parse_start(jsonn_parser parser, uint8_t *json, size_t length);
 jsonn_type jsonn_parse_next(jsonn_parser parser);

@@ -29,7 +29,7 @@ struct jsonn_parser_s {
         uint8_t *write;
         parse_next next;
         uint16_t flags;
-        jsonn_result result;
+        jsonn_value result;
         size_t stack_size;
         size_t stack_pointer;
         uint8_t *stack;

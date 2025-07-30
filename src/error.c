@@ -3,8 +3,8 @@
 
 static jsonn_type error(jsonn_parser p, jsonn_error_code code) 
 {
-        p->result.is.error.code = code;
-        p->result.is.error.at = p->current - p->start;
+        p->result.error.code = code;
+        p->result.error.at = p->current - p->start;
         return JSONN_ERROR;
 }
 

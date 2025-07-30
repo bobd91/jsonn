@@ -139,13 +139,13 @@ static int parse_unicode_escapes(jsonn_parser p) {
 
 static jsonn_type set_integer_result(jsonn_parser p, long integer) 
 {
-        p->result.is.number.integer = integer;
+        p->result.number.integer = integer;
         return JSONN_INTEGER;
 }
 
 static jsonn_type set_real_result(jsonn_parser p, double real) 
 {
-        p->result.is.number.real = real;
+        p->result.number.real = real;
         return JSONN_REAL;
 }
 
@@ -155,8 +155,8 @@ static jsonn_type set_string_result(
                 int length, 
                 jsonn_type type) 
 {
-        p->result.is.string.bytes = string;
-        p->result.is.string.length = length;
+        p->result.string.bytes = string;
+        p->result.string.length = length;
         return type;
 }
 

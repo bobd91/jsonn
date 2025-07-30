@@ -7,6 +7,7 @@
 #include "jsonn.h"
 
 #include "value.c"
+#include "visit.c"
 
 static parse_next jsonn_init_next(jsonn_parser p)
 {
@@ -334,5 +335,18 @@ static jsonn_type jsonn_next(jsonn_parser p)
                         return parse_error(p);
                 }
         }
+}
+
+static jsonn_type parse_visit(
+                jsonn_parser p,
+                jsonn_visitor *visitor)
+{
+        jsonn_type type;
+        int abort = 0;
+        while(!abort && JSONN_EOF != (type = jsonn_next(p))) {
+                abort = visit(visitor, type, &p->result);
+        }
+
+        return type;
 }
 

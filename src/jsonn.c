@@ -3,73 +3,11 @@
 
 #include "jsonn.h"
 
-#include "parse.c"
-
 static void *(*jsonn_alloc)(size_t) = malloc;
 static void (*jsonn_dealloc)(void *) = free;
 
-static jsonn_type jsonn_parse_callback(
-                jsonn_parser p,
-                jsonn_callbacks *callbacks,
-                void *ctx)
-{
-        jsonn_type type;
-        int abort = 0;
-        while(!abort && JSONN_EOF != (type = jsonn_next(p))) {
-                switch(type) {
-                case JSONN_FALSE:
-                case JSONN_TRUE:
-                        abort = callbacks->j_boolean 
-                                && callbacks->j_boolean(ctx, JSONN_TRUE == type);
-                        break;
-                case JSONN_NULL:
-                        abort = callbacks->j_null 
-                                && callbacks->j_null(ctx);
-                        break;
-                case JSONN_INTEGER:
-                        abort = callbacks->j_integer
-                                && callbacks->j_integer(ctx, p->result.is.number.integer);
-                        break;
-                case JSONN_REAL:
-                        abort = callbacks->j_real 
-                                && callbacks->j_real(ctx, p->result.is.number.real);
-                        break;
-                case JSONN_STRING:
-                        abort = callbacks->j_string
-                                && callbacks->j_string(ctx, &p->result.is.string);
-                        break;
-                case JSONN_KEY:
-                        abort = callbacks->j_key
-                                && callbacks->j_key(ctx, &p->result.is.string);
-                        break;
-                case JSONN_BEGIN_ARRAY:
-                        abort = callbacks->j_begin_array 
-                                && callbacks->j_begin_array(ctx);
-                        break;
-                case JSONN_END_ARRAY:
-                        abort = callbacks->j_end_array 
-                                && callbacks->j_end_array(ctx);
-                        break;
-                case JSONN_BEGIN_OBJECT:
-                        abort = callbacks->j_begin_object 
-                                && callbacks->j_begin_object(ctx);
-                        break;
-                case JSONN_END_OBJECT:
-                        abort = callbacks->j_end_object 
-                                && callbacks->j_end_object(ctx);
-                        break;
-                case JSONN_ERROR:
-                        abort = callbacks->j_error 
-                                && callbacks->j_error(ctx, &p->result.is.error);
-                        abort = 1; // always abort after error
-                        break;
-                default:
-                        abort = 1;
-                }
-        }
-
-        return type;
-}
+#include "parse.c"
+#include "node.c"
 
 void jsonn_set_allocator(void *(malloc)(size_t), void (*free)(void *))
 {
@@ -102,8 +40,7 @@ jsonn_type jsonn_parse(
                 jsonn_parser p, 
                 uint8_t *json, 
                 size_t length,
-                jsonn_callbacks *callbacks,
-                void *ctx)
+                jsonn_visitor *visitor)
 {
         p->next = jsonn_init_next(p);
         p->start = p->current = p->write = json;
@@ -114,9 +51,9 @@ jsonn_type jsonn_parse(
         // Skip leading byte order mark
         p->current += bom_bytes(p);
 
-        return callbacks
-                ? jsonn_parse_callback(p, callbacks, ctx)
-                : JSONN_START;
+        return visitor
+                ? parse_visit(p, visitor)
+                : JSONN_ROOT;
 }
 
 void jsonn_parse_start(
@@ -124,7 +61,7 @@ void jsonn_parse_start(
                 uint8_t *json,
                 size_t length)
 {
-        jsonn_parse(p, json, length, NULL, NULL);
+        jsonn_parse(p, json, length, NULL);
 }
 
 jsonn_type jsonn_parse_next(jsonn_parser p)

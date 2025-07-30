@@ -1,262 +1,261 @@
+#define JSONN_BLOCK_SIZE 4096
 
-#define JSONN_NODE_BLOCK_SIZE 4096
+typedef struct node_block_s *node_block;
 
-typdef union {
-        int64_t integer;
-        double real;
-        void *ptr;
-} jsonn_node_value;
-
-typedef enum {
-        JSONN_NODE_NULL,
-        JSONN_NODE_BOOLEAN,
-        JSONN_NODE_INTEGER,
-        JSONN_NODE_REAL,
-        JSONN_NODE_STRING,
-        JSONN_NODE_ARRAY,
-        JSONN_NODE_OBJECT,
-        JSONN_NODE_OBJECT_MEMBER,
-        JSONN_NONE_KEY,
-        // internal use
-        JSONN_NODE_TEE,
-        JSONN_NODE_ROOT,
-} jsonn_node_type;
-
-typedef struct jsonn_node_s {
-        jsonn_node_value value;
-        jsonn_node_s *node;
-        jsonn_node_s *next;
-        json_node_type type;
-        int extra;
+struct node_block_s {
+        node_block next;
+        node_block current;
+        int free_nodes;
 };
 
-static const nodes_per_block = 
-                JSONN_NODE_BLOCK_SIZE / sizeof(struct jsonn_node_s);
+static const int nodes_per_block = 
+                (JSONN_BLOCK_SIZE - sizeof(struct node_block_s))
+                 / sizeof(struct jsonn_node_s);
 
-typedef struct jsonn_node_s *jsonn_node;
-
-
-int on_null(jsonn_node root)
-{       
-        if(!node_add(root, JSONN_NODE_NULL))
-                return 1;
-        return 0;
+static node_block root_block(jsonn_node root)
+{
+        return ((node_block)root) - 1;
 }
 
-int on_boolean(jsonn_node root, int boolean)
+static jsonn_node node_add(jsonn_node root, jsonn_type type) 
 {
-        jsonn_node n = node_add(root, JSONN_NODE_BOOLEAN);
-        if(!n) return 1;
+        node_block block = root_block(root);
+        node_block current = block->current;
 
-        n->value.integer = boolean;
-        return 0;
-}
+        if(!current->free_nodes) {
+                node_block new  = jsonn_alloc(JSONN_BLOCK_SIZE);
+                if(!new) return NULL;
 
-int on_integer(jsonn_node root, long integer)
-{
-        jsonn_node n = node_add(root, JSONN_NODE_INTEGER);
-        if(!n) return 1;
-
-        n->value.integer = integer;
-        return 0;
-}
-
-
-int on_real(jsonn_node root, double real)
-{
-        jsonn_node n = node_add(root, JSONN_NODE_REAL);
-        if(!n) return 1;
-
-        n->value.real = real;
-        return 0;
-}
-
-int on_string(jsonn_node root, jsonn_string string)
-{
-        jsonn_node n = node_add(root, JSONN_NODE_STRING);
-        if(!n) return 1;
-
-        n->value.integer = string.length;
-        n->value.ptr = string.bytes;
-        return 0;
-}
-
-int on_key(jsonn_node root, jsonn_string string)
-{
-        jsonn_node n = node_add(root, JSONN_NODE_KEY);
-        if(!n) return 1;
-
-        n->value.integer = string.length;
-        n->value.ptr = string.bytes;
-        return 0;
-}
-
-int on_begin_array(jsonn_node root)
-{
-        if(!node_push(root, JSONN_NODE_ARRAY))
-                return 1;
-        return 0;
-}
-
-int on_end_array(jsonn_node root)
-{
-        node_pop(root);
-        return 0;
-}
-
-int on_begin_object(jsonn_node root)
-{
-        if(!node_push(root, JSONN_NODE_OBJECT))
-                return 1;
-        return 0;
-}
-
-int on_end_object(jsonn_node root)
-{
-        node_pop(root);
-        return 0;
-}
-
-int on_error(jsonn_node root, jsonn_error error)
-{
-        node_reset(root);
-        return 1;
-}
-
-jsonn_node node_add(jsonn_node root, jsonn_node_type type) 
-{
-        jsonn_node n = node_alloc(root, type);
-        if(!n) return NULL;
-
-        if(!root->node) {
-                root->node = n;
-                root->next = n;
-                n->node = root;
-        } else {
-                root->next->next = n;
-                n->node = root->next->node;
+                new->next = NULL;
+                new->free_nodes = nodes_per_block;
+                current->next = new;
+                block->current = new;
+                current = new;
         }
-        
-        if(root->next->type == JSONN_NODE_KEY
-                        && !is_container(type))
-                // non-container value after key:
-                // nothing should be written after value
-                // so we must redirect root->next
-                root->next = root->next->node->node;
-        else
-                root->next = n;
+        jsonn_node n = ((jsonn_node)(current + 1)) 
+                + (nodes_per_block - current->free_nodes);
 
+        current->free_nodes--;
+        n->type = type;
         return n;
 }
 
-int is_container(jsonn_node node)
+static jsonn_node jsonn_root_node()
 {
-        return node == JSONN_NODE_ARRAY || JSONN_NODE_OBJECT;
-}
+        node_block block  = jsonn_alloc(JSONN_BLOCK_SIZE);
+        if(!block) return NULL;
 
-jsonn_node node_push(jsonn_node root, jsonn_node_type type) 
-{
-        json_node n;
+        block->next = NULL;
+        block->current = block;
+        block->free_nodes = nodes_per_block - 1;
 
-        if(root->next->type == JSONN_NODE_ARRAY) {
-                // Pushing array or object into 
-                // Array element requires an extra, internal, element
-                jsonn_node e = node_add(root, JSONN_NODE_TEE);
-                if(!e) return NULL;
+        jsonn_node root = (jsonn_node)(block + 1);
 
-                n = node_alloc(root, type);
-                if(!n) return NULL;
-
-                n->node = e;
-                e->value.ptr = n;
-                root->next = n;
-        } else {
-                n = node_add(root, type);
-        }
-        return n;
-}
-
-
-void node_pop(jsonn_node root)
-{
-        root->next = root->next->node->node;
-}
-
-jsonn_node jsonn_node_new()
-{
-        jsonn_node alloc = jsonn_alloc(JSONN_NODE_BLOCK_SIZE);
-        if(!alloc) return NULL;
-
-        alloc->extra = nodes_per_block - 2;
-        alloc->node = alloc;
-        alloc->next = NULL;
-        
-        jsonn_node root = alloc + 1;
-        root->type = JSONN_NODE_ROOT;
-        root->node = NULL;
-        root->next = NULL;
+        root->type = JSONN_ROOT;
 
         return root;
 }
 
-jsonn_node node_add_block(jsonn_node root)
-{
-        jsonn_node new = jsonn_alloc(JSONN_NODE_BLOCK_SIZE);
-        (!new) return NULL;
-
-        jsonn_node alloc = root - 1;
-
-        alloc->node->next = new;
-        alloc->node = new;
-
-        new->extra = nodes_per_block - 1;
-        new->next = NULL;
+static int node_null(void *root)
+{       
+        return NULL != node_add((jsonn_node)root, JSONN_NULL);
 }
 
-jsonn_node node_alloc(jsonn_node root, jasonn_node_type type)
+static int node_boolean(void *root, int boolean)
 {
-        jsonn_node alloc = root - 1;
-        jsonn_node block = alloc->node;
-        if(!block->extra) {
-                block = node_add_block(root);
-                if(!block) return NULL;
+        return NULL != node_add((jsonn_node)root, boolean ? JSONN_TRUE : JSONN_FALSE);
+}
+
+static int node_integer(void *root, long integer)
+{
+        jsonn_node n = node_add((jsonn_node)root, JSONN_INTEGER);
+        if(!n) return 1;
+
+        n->is.number.integer = integer;
+        return 0;
+}
+
+
+static int node_real(void *root, double real)
+{
+        jsonn_node n = node_add((jsonn_node)root, JSONN_REAL);
+        if(!n) return 1;
+
+        n->is.number.real = real;
+        return 0;
+}
+
+static int node_string(void *root, uint8_t *bytes, size_t length)
+{
+        jsonn_node n = node_add((jsonn_node)root, JSONN_STRING);
+        if(!n) return 1;
+
+        n->is.string.bytes = bytes;
+        n->is.string.length = length;
+        return 0;
+}
+
+static int node_key(void *root, uint8_t *bytes, size_t length)
+{
+        jsonn_node n = node_add((jsonn_node)root, JSONN_KEY);
+        if(!n) return 1;
+
+        n->is.string.bytes = bytes;
+        n->is.string.length = length;
+        return 0;
+}
+
+static int node_begin_array(void *root)
+{
+        return NULL != node_add((jsonn_node)root, JSONN_BEGIN_ARRAY);
+}
+
+static int node_end_array(void *root)
+{
+        return NULL != node_add((jsonn_node)root, JSONN_END_ARRAY);
+}
+
+static int node_begin_object(void *root)
+{
+        return NULL != node_add((jsonn_node)root, JSONN_BEGIN_OBJECT);
+}
+
+static int node_end_object(void *root)
+{
+        return NULL != node_add((jsonn_node)root, JSONN_END_OBJECT);
+}
+
+static jsonn_callbacks node_callbacks = {
+        .boolean = node_boolean,
+        .null = node_null,
+        .integer = node_integer,
+        .real = node_real,
+        .string = node_string,
+        .key = node_key,
+        .begin_array = node_begin_array,
+        .end_array = node_end_array,
+        .begin_object = node_begin_object,
+        .end_object = node_end_object
+};      
+
+jsonn_visitor jsonn_tree_builder() {
+        jsonn_visitor visitor = {
+                .callbacks = &node_callbacks,
+                .ctx = jsonn_root_node()
+        };
+        return visitor;
+}
+
+jsonn_node jsonn_parse_tree(jsonn_parser p,
+                uint8_t *json,
+                size_t length)
+{
+        jsonn_visitor visitor = jsonn_tree_builder();
+        jsonn_node root = (jsonn_node)(visitor.ctx);
+        if(!root) {
+                error(p, JSONN_ERROR_ALLOC);
+                return NULL;
+        };
+
+        jsonn_type type = jsonn_parse(p, json, length, &visitor);
+        if(type != JSONN_EOF) {
+                jsonn_tree_free(root);
+                return NULL;
         }
-        
-        jsonn_node n = block + (bytes_per_block - block->extra);
-        --block->extra;
 
-        n.type = type;
-        return n;
+        return root;
 }
 
-
-
-
-
-
-
-        
-        
-
-
-
-
-
-
-        a->next = NULL;
-        a->value.integer = (JS
-        alloc.type = JSONN_NODE_ALLOC;
-        jsonn_node root = a + sizeof(struct jsonn_node_s);
-        root->type = JSONN_NODE_ROOT;
-        
-
-        
-}
-
-jsonn_node jsonn_node_free(jsonn_node root)
+int jsonn_tree_visit(jsonn_node root, jsonn_visitor *visitor)
 {
+        node_block block = root_block(root);
+        int abort = 0;
+        while(block) {
+                jsonn_node node = (jsonn_node)(block + 1);
+                int nodes = nodes_per_block - block->free_nodes;
+                for(int i = 0 ; i < nodes ; i++) {
+                        abort = visit(visitor, node->type, &node->is);
+                        if(abort)
+                                break;
+                        node++;
+                }
+                block = block->next;
+        }
+        return abort;
 }
 
-jsonn_node node_alloc(jsonn_node root, jsonn_node_type type)
+void jsonn_tree_free(jsonn_node root)
 {
+        if(root->type != JSONN_ROOT)
+                return;
 
+        node_block block = root_block(root);
+        node_block next;
+        while(block) {
+                next = block->next;
+                jsonn_dealloc(block);
+                block = next;
+        }
+}
+
+#ifdef JSONN_NODE_TESTING
+#include <stdio.h>
+
+static void print_block(node_block block)
+{
+        printf("{\n");
+        printf("Block   : %p\n", block);
+        printf("Next    : %p\n", block->next);
+        printf("Current : %p\n", block->current);
+        printf("Free    : %d\n", block->free_nodes);
+        printf("}\n");
+}
+
+static void print_block_info(jsonn_node root)
+{
+        node_block block = root_block(root);
+        while(block) {
+                print_block(block);
+                block = block->next;
+        }
+}
+
+
+
+int main(int argc, char *argv[])
+{
+        printf("Size of block   : %ld\n", sizeof(struct node_block_s));
+        printf("Size of node    : %ld\n", sizeof(struct jsonn_node_s));
+        printf("Nodes per block : %d\n", nodes_per_block);
+
+        jsonn_node root = jsonn_root_node();
+
+        print_block_info(root);
+
+        node_begin_array(root);
+
+        print_block_info(root);
+
+        node_boolean(root, 1);
+
+        print_block_info(root);
+
+        node_null(root);
+
+        print_block_info(root);
+
+        node_begin_object(root);
+
+        node_key(root, "xxx", 3);
+
+        node_integer(root, 5);
+
+        node_end_object(root);
+
+        node_end_array(root);
+
+        print_block_info(root);
+
+        jsonn_root_free(root);
+}
+#endif
