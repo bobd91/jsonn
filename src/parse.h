@@ -22,7 +22,7 @@ typedef enum {
         PARSE_ERROR
 } parse_next;
 
-struct jsonn_context {
+struct jsonn_parser_s {
         uint8_t *start;
         uint8_t *current;
         uint8_t *last;
@@ -35,4 +35,4 @@ struct jsonn_context {
         uint8_t *stack;
 };
 
-typedef struct jsonn_context *jsonn_parser;
+typedef struct jsonn_parser_s *jsonn_parser;

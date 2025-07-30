@@ -71,7 +71,6 @@ int do_error(void *ctx, jsonn_error *e)
 
 
 jsonn_callbacks callbacks = {
-        .ctx = NULL,
         .j_boolean = do_boolean,
         .j_null = do_null,
         .j_integer = do_integer,
@@ -99,7 +98,7 @@ int main(int argc, char *argv[]) {
                 uint8_t *buf = malloc(length + 1);
                 if(buf) {
                         fread(buf, length, 1, fh);
-                        jsonn_type t = jsonn_parse(p, buf, length, &callbacks);
+                        jsonn_type t = jsonn_parse(p, buf, length, &callbacks, NULL);
                         jsonn_free(p);
                         free(buf);
                         int ret = (t == JSONN_EOF) ? 0 : 1;

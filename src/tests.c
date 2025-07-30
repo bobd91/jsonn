@@ -92,7 +92,6 @@ int do_error(void *ctx, jsonn_error *e)
 
 
 jsonn_callbacks callbacks = {
-        .ctx = NULL,
         .j_boolean = do_boolean,
         .j_null = do_null,
         .j_integer = do_integer,
@@ -130,7 +129,7 @@ int main(int argc, char *argv[])
         char *json = argv[1];
         size_t len = strlen(json);
         memcpy(buf, json, len + 1);
-        jsonn_type res = jsonn_parse(p, buf, len, &callbacks);
+        jsonn_type res = jsonn_parse(p, buf, len, &callbacks, NULL);
         if(res == JSONN_EOF)
                 printf("\n\nResult EOF: %d\n", res);
         else

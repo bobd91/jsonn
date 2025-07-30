@@ -19,7 +19,7 @@
 #define JSONN_FLAG_IS_ARRAY                   0x200
 
 typedef enum {
-        JSONN_BEGIN,
+        JSONN_START,
         JSONN_FALSE,
         JSONN_NULL,
         JSONN_TRUE,
@@ -31,9 +31,9 @@ typedef enum {
         JSONN_END_ARRAY,
         JSONN_BEGIN_OBJECT,
         JSONN_END_OBJECT,
-        JSONN_EOF,
         JSONN_OPTIONAL,
-        JSONN_ERROR
+        JSONN_ERROR,
+        JSONN_EOF
 } jsonn_type;
 
 typedef enum {
@@ -70,8 +70,8 @@ typedef struct {
         } is;
 } jsonn_result;
 
-struct jsonn_context;
-typedef struct jsonn_context *jsonn_parser;
+struct jsonn_parser_s;
+typedef struct jsonn_parser_s *jsonn_parser;
 
 typedef struct {
         size_t stack_size;
@@ -79,7 +79,6 @@ typedef struct {
 } jsonn_config;
 
 typedef struct {
-        void *ctx;
         int (*j_boolean)(void *, int);
         int (*j_null)(void *);
         int (*j_integer)(void *, int64_t);
@@ -105,8 +104,10 @@ jsonn_type jsonn_parse(
                 jsonn_parser parser, 
                 uint8_t *json, 
                 size_t length,
-                /* nullable */ jsonn_callbacks *callbacks);
+                jsonn_callbacks *callbacks,
+                void *ctx);
 
+void jsonn_parse_start(jsonn_parser parser, uint8_t *json, size_t length);
 jsonn_type jsonn_parse_next(jsonn_parser parser);
 
 /* TODO: _find, _find_any, ... ? */
