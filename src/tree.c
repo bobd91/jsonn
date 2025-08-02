@@ -1,60 +1,4 @@
-#define JSONN_BLOCK_SIZE 4096
 
-typedef struct node_block_s *node_block;
-
-struct node_block_s {
-        node_block next;
-        node_block current;
-        int free_nodes;
-};
-
-static const int nodes_per_block = 
-                (JSONN_BLOCK_SIZE - sizeof(struct node_block_s))
-                 / sizeof(struct jsonn_node_s);
-
-static node_block root_block(jsonn_node root)
-{
-        return ((node_block)root) - 1;
-}
-
-static jsonn_node node_add(jsonn_node root, jsonn_type type) 
-{
-        node_block block = root_block(root);
-        node_block current = block->current;
-
-        if(!current->free_nodes) {
-                node_block new  = jsonn_alloc(JSONN_BLOCK_SIZE);
-                if(!new) return NULL;
-
-                new->next = NULL;
-                new->free_nodes = nodes_per_block;
-                current->next = new;
-                block->current = new;
-                current = new;
-        }
-        jsonn_node n = ((jsonn_node)(current + 1)) 
-                + (nodes_per_block - current->free_nodes);
-
-        current->free_nodes--;
-        n->type = type;
-        return n;
-}
-
-static jsonn_node jsonn_root_node()
-{
-        node_block block  = jsonn_alloc(JSONN_BLOCK_SIZE);
-        if(!block) return NULL;
-
-        block->next = NULL;
-        block->current = block;
-        block->free_nodes = nodes_per_block - 1;
-
-        jsonn_node root = (jsonn_node)(block + 1);
-
-        root->type = JSONN_ROOT;
-
-        return root;
-}
 
 static int node_null(void *root)
 {       
@@ -184,78 +128,14 @@ int jsonn_tree_visit(jsonn_node root, jsonn_visitor *visitor)
         return abort;
 }
 
-void jsonn_tree_free(jsonn_node root)
+void jsn_tree_free(jsonn_node root)
 {
         if(root->type != JSONN_ROOT)
                 return;
 
-        node_block block = root_block(root);
-        node_block next;
-        while(block) {
-                next = block->next;
-                jsonn_dealloc(block);
-                block = next;
-        }
-}
-
-#ifdef JSONN_NODE_TESTING
-#include <stdio.h>
-
-static void print_block(node_block block)
-{
-        printf("{\n");
-        printf("Block   : %p\n", block);
-        printf("Next    : %p\n", block->next);
-        printf("Current : %p\n", block->current);
-        printf("Free    : %d\n", block->free_nodes);
-        printf("}\n");
-}
-
-static void print_block_info(jsonn_node root)
-{
-        node_block block = root_block(root);
-        while(block) {
-                print_block(block);
-                block = block->next;
-        }
+        block_root_free(block_root(root));
 }
 
 
 
-int main(int argc, char *argv[])
-{
-        printf("Size of block   : %ld\n", sizeof(struct node_block_s));
-        printf("Size of node    : %ld\n", sizeof(struct jsonn_node_s));
-        printf("Nodes per block : %d\n", nodes_per_block);
 
-        jsonn_node root = jsonn_root_node();
-
-        print_block_info(root);
-
-        node_begin_array(root);
-
-        print_block_info(root);
-
-        node_boolean(root, 1);
-
-        print_block_info(root);
-
-        node_null(root);
-
-        print_block_info(root);
-
-        node_begin_object(root);
-
-        node_key(root, "xxx", 3);
-
-        node_integer(root, 5);
-
-        node_end_object(root);
-
-        node_end_array(root);
-
-        print_block_info(root);
-
-        jsonn_root_free(root);
-}
-#endif
