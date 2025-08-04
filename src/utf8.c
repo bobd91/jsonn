@@ -67,8 +67,25 @@ static int is_valid_codepoint(int cp)
         return cp <= CODEPOINT_MAX && !is_surrogate(cp);
 }
 
+static int utf8_codepoint_bytes(int cp)
+{
+        if(cp <= _1_BYTE_MAX)
+                return 1;
+        else if(cp <= _2_BYTE_MAX)
+                return 2;
+        else if(is_surrogate(cp))
+                return 0;
+        else if(cp <= _3_BYTE_MAX)
+                return 3;
+        else if(cp <= CODEPOINT_MAX)
+                return 4;
+        else
+                retirn 0;
+}
+
 /*
- * Validates and writes a Unicode codepoint as utf-8 bytes to the output
+ * Validates and writes a Unicode codepoint as utf-8 bytes to p->current
+ * Moves p->current past the end of the written bytes
  *
  * Returns 1 if valid else 0
  */      
@@ -77,22 +94,22 @@ static int write_utf8_codepoint(jsonn_parser p, int cp)
         int shift = 0;
         if(cp <= _1_BYTE_MAX) {
                 // Ascii, just one byte
-                *p->write++ = cp;
+                *p->current++ = cp;
         } else if(cp <= _2_BYTE_MAX) {
                 // 2 byte UTF8, byte 1 is 110 and highest 5 bits
                 shift = 6;
-                *p->write++ = (_2_BYTE_LEADER | LO_5_BITS(cp >> shift));
+                *p->current++ = (_2_BYTE_LEADER | LO_5_BITS(cp >> shift));
         } else if(is_surrogate(cp)) {
                 // UTF-16 surrogates are not legal Unicode
                 return 0;
         } else if(cp <= _3_BYTE_MAX) {
                 // 3 byte UTF8, byte 1 is 1110 and highest 4 bits
                 shift = 12;
-                *p->write++ = (_3_BYTE_LEADER | LO_4_BITS(cp >> shift));
+                *p->current++ = (_3_BYTE_LEADER | LO_4_BITS(cp >> shift));
         } else if(cp <= CODEPOINT_MAX) {
                 // 4 byte UTF8, byte 1 is 11110 and highest 3 bytes
                 shift = 18;
-                *p->write++ = (_4_BYTE_LEADER | LO_3_BITS(cp >> shift));
+                *p->current++ = (_4_BYTE_LEADER | LO_3_BITS(cp >> shift));
         } else {
                 // value to large to be legal Unicode
                 return 0;
@@ -101,18 +118,18 @@ static int write_utf8_codepoint(jsonn_parser p, int cp)
         // high two bits '10' and next highest 6 bits from codepoint 
         while(shift > 0) {
                 shift -= 6;
-                *p->write++ = CONTINUATION_BYTE | LO_6_BITS(cp >> shift);
+                *p->current++ = CONTINUATION_BYTE | LO_6_BITS(cp >> shift);
         }
         return 1;
 }
 
 /*
- * Validates and writes a sequence of utf-8 bytes to the
- * output and returns 1
+ * Validates a sequence of utf-8 bytes from p->current
+ * Moves p->current past the end of the sequence
  *
- * If invalid returns 0
+ * Returns 1 if valid, else 0
  */
-static int write_utf8_sequence(jsonn_parser p) 
+static int is_valid_utf8_sequence(jsonn_parser p) 
 {
         int codepoint;
         int bar;
@@ -154,13 +171,6 @@ static int write_utf8_sequence(jsonn_parser p)
                 return 0;
 
         // We have a well formed sequence
-        // If the target and source are the same then skip
-        // otherwise copy the sequence to the output
-        if(p->write != start) {
-                for(int i = 0 ; i < count ; i++)
-                        *p->write++ = start[i];
-        }
-
         return 1;
 }
 

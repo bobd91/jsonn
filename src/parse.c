@@ -9,6 +9,65 @@
 #include "value.c"
 #include "visit.c"
 
+static void consume_line_comment(jsonn_parser p) {
+        while(ensure_current(p)) {
+                uint8_t c = *p->current++;
+                if('\r' == c || '\n' == c)
+                        return;
+        }
+}
+
+static void consume_block_comment(jsonn_parser p) {
+        int seen_star = 0;
+        while(ensure_current(p)) {
+                uint8_t c = *p->current++;
+                if(seen_star && '/' == c)
+                        return;
+                seen_star = '*' == c;
+        }
+        // allows incomplete block comment at end of input
+        // ... I can live with that
+}
+
+static void consume_whitespace(jsonn_parser p) {
+        while(ensure_current(p)) {
+                switch(*p->current) {
+                case ' ':
+                case '\n':
+                case '\r':
+                case '\t':
+                        break;
+
+                case '/':
+                        if(!(p->flags & JSONN_FLAG_COMMENTS)) return;
+
+
+                        if(ensure_current_n(p, 2)) {
+                                switch(*(p->(current + 1))) {
+                                case '/':
+                                        consume_current_n(p, 2);
+                                        consume_line_comment(p);
+                                        break;
+
+                                case '*':
+                                        consume_current_n(p, 2);
+                                        consume_block_comment(p);
+                                        break;
+
+                                default:
+                                        return;
+                                }
+                        }
+                        break;
+
+                default:
+                        return;
+
+                }
+                p->current++;
+        }
+}
+
 static parse_next jsonn_init_next(jsonn_parser p)
 {
         if(p->flags & JSONN_FLAG_IS_OBJECT)
@@ -74,6 +133,7 @@ static jsonn_type parse_begin_object(jsonn_parser p)
 
 static jsonn_type parse_end_object(jsonn_parser p) 
 {
+        p->current++;
         return(pop_next(p))
                 ? JSONN_END_OBJECT
                 : error(p, JSONN_ERROR_STACKUNDERFLOW);
@@ -89,6 +149,7 @@ static jsonn_type parse_begin_array(jsonn_parser p)
 
 static jsonn_type parse_end_array(jsonn_parser p) 
 {
+        p->current++;
         return(pop_next(p))
                 ? JSONN_END_ARRAY
                 : error(p, JSONN_ERROR_STACKUNDERFLOW);
@@ -100,21 +161,22 @@ static jsonn_type parse_literal(
                 jsonn_type type) 
 {
         // Already matched first character of literal
-        uint8_t *s1 = (uint8_t *)literal;
-        uint8_t *s2 = p->current;
-        while(*++s1 == *++s2 && *s1)
+        uint8_t *s1 = 1 + (uint8_t *)literal;
+        p->current++;
+        while(*s1 && ensure_current(p) && *s1++ == *p->current++)
                 ;
+
         // If we are at the null at the end of literal then we found it
-        if(!*s1) {
-                p->current = s2;
+        if(!*s1)
                 return type;
-        }
+
+        // starting a literal but not finishing is a parse error
         return parse_error(p);
 }
 
 static jsonn_type parse_value(jsonn_parser p, int optional) 
 {
-        if(p->current < p->last) {
+        if(ensure_current(p)) {
                 switch(*p->current) {
                 case '"':
                         return parse_string(p, JSONN_STRING);
@@ -159,29 +221,21 @@ static jsonn_type parse_value(jsonn_parser p, int optional)
 
 static jsonn_type parse_array_terminator(jsonn_parser p) 
 {
-        if(p->current < p->last) {
-                if(']' == *p->current) {
-                        p->current++;
-                        return parse_end_array(p);
-                }
-        }
+        if(ensure_current(p) && ']' == *p->current)
+                return parse_end_array(p);
         return parse_error(p);
 }
 
 static jsonn_type parse_object_terminator(jsonn_parser p) 
 {
-        if(p->current < p->last) {
-                if('}' == *p->current) {
-                        p->current++;
-                        return parse_end_object(p);
-                }
-        }
+        if(ensure_current(p) && '}' == *p->current)
+                return parse_end_object(p);
         return parse_error(p);
 }
 
 static parse_next consume_array_value_separator(jsonn_parser p)
 {
-        if(p->current < p->last) {
+        if(ensure_current(p)) {
                 switch(*p->current) {
                 case ',':
                         p->current++;
@@ -205,7 +259,7 @@ static parse_next consume_array_value_separator(jsonn_parser p)
 
 static parse_next consume_object_member_separator(jsonn_parser p) 
 {
-        if(p->current < p->last) {
+        if(ensure_current(p)) {
                 switch(*p->current) {
                 case ',':
                         p->current++;
@@ -229,7 +283,7 @@ static parse_next consume_object_member_separator(jsonn_parser p)
 
 static parse_next consume_object_name_separator(jsonn_parser p) 
 {
-        if(p->current < p->last) {
+        if(ensure_current(p)) {
                 if(':' == *p->current) {
                         p->current++;
                         return PARSE_OBJECT_MEMBER_VALUE;
@@ -326,7 +380,7 @@ static jsonn_type jsonn_next(jsonn_parser p)
                         return parse_object_terminator(p);
 
                 case PARSE_EOF:
-                        if(p->current == p->last)
+                        if(!ensure_current(p))
                                 return JSONN_EOF;
                         return parse_error(p);
 

@@ -72,6 +72,21 @@ static void *block_item_new(block root_block)
         return item;
 }
 
+static void block_for_items(block root_block, void (*fn)(void *))
+{
+        block blk = root_block;
+        int ipb = items_per_block(blk->size);
+        while(blk) {
+                void *item = ((void *)root_block) + sizeof(struct block_s);
+                void *end = item + (ipb - blk->free);
+                while(item < end) {
+                        fn(item);
+                        item++;
+                }
+                blk = blk->next;
+        }
+}
+
 static void block_free(block root_block)
 {
         block blk = root_block;

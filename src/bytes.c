@@ -1,24 +1,43 @@
 
-struct bytes_s *bytes;
+#define JSN_BYTE_BUFFER_SIZE 4096
 
-struct bytes_buffer_s {
-        bytes next_bytes;
-        bytes current_bytes;
-        uint8_t *last
+typedef struct byte_buffer_s {
         uint8_t *start;
         uint8_t *current;
-};
+        uint8_t *last
+} *byte_buffer;
 
-uint8_t *bytes_buffer_new()
+block byte_buffer_block_new()
 {
-        bytes buf = jsn_alloc(JSN_BLOCK_SIZE);
-        if(!buf)
+        return block_new(sizeof(byte_buffer_s));
+}
+
+byte_buffer byte_buffer_new(block root_block)
+{
+        byte_buffer b = block_item_new(root_block);
+        b->start = jsn_alloc(JSN_BYTE_BUFFER_SIZE);
+        if(!b->start)
                 return NULL;
 
-        buf->next_bytes = NULL;
-        buf->current_bytes = buf;
-        buf->start = buf->current = (uint8_t *)(buf + 1);
-        return buf;
+        b->current = b->start;
+        b->last = b->start + JSN_BYTE_BUFFER_SIZE;
+
+        return b;
 }
+
+void byte_buffer_free(void *item)
+{
+        byte_buffer b = item;
+        jsn_dealloc(b->start);
+}
+
+void byte_buffer_block_free(block root_block)
+{
+        block_for_items(block, byte_buffer_free);
+        block_free(block);
+}
+
+        
+
 
 
