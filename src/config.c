@@ -102,8 +102,6 @@
 
 #include <string.h>
 
-#include "jsonn.h"
-
 static jsonn_config config_defaults = {
         .stack_size = JSONN_STACK_SIZE,
         .flags = 0x0

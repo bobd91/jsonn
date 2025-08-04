@@ -2,10 +2,8 @@
 
 #include <stddef.h>
 
-#include "jsonn.h"
-
 typedef enum {
-        // Don't change as the first two values are used for stack bit
+        // Don't change the first two values as they are used for stack bit
         PARSE_OBJECT_MEMBER_SEPARATOR = 0,
         PARSE_ARRAY_VALUE_SEPARATOR = 1,
         PARSE_OBJECT_MEMBER_OPTIONAL,
@@ -30,6 +28,9 @@ struct jsonn_parser_s {
         parse_next next;
         uint16_t flags;
         jsonn_value result;
+        int fd;
+        block buffer_root;
+        int seen_eof;
         size_t stack_size;
         size_t stack_pointer;
         uint8_t *stack;

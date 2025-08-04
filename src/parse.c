@@ -1,13 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <errno.h>
 #include <string.h>
-
-#include "jsonn.h"
-
-#include "value.c"
-#include "visit.c"
 
 static void consume_line_comment(jsonn_parser p) {
         while(ensure_current(p)) {
@@ -40,17 +34,17 @@ static void consume_whitespace(jsonn_parser p) {
 
                 case '/':
                         if(!(p->flags & JSONN_FLAG_COMMENTS)) return;
-
-
-                        if(ensure_current_n(p, 2)) {
-                                switch(*(p->(current + 1))) {
+                        
+                        p->current++;
+                        if(ensure_current(p)) {
+                                switch(*p->current) {
                                 case '/':
-                                        consume_current_n(p, 2);
+                                        p->current++;
                                         consume_line_comment(p);
                                         break;
 
                                 case '*':
-                                        consume_current_n(p, 2);
+                                        p->current++;
                                         consume_block_comment(p);
                                         break;
 

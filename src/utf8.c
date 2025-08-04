@@ -11,8 +11,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "parse.h"
-
 #define REPLACEMENT_CHARACTER "\xEF\xBD\xBD"
 int replacement_length = 3;
 
@@ -67,22 +65,6 @@ static int is_valid_codepoint(int cp)
         return cp <= CODEPOINT_MAX && !is_surrogate(cp);
 }
 
-static int utf8_codepoint_bytes(int cp)
-{
-        if(cp <= _1_BYTE_MAX)
-                return 1;
-        else if(cp <= _2_BYTE_MAX)
-                return 2;
-        else if(is_surrogate(cp))
-                return 0;
-        else if(cp <= _3_BYTE_MAX)
-                return 3;
-        else if(cp <= CODEPOINT_MAX)
-                return 4;
-        else
-                retirn 0;
-}
-
 /*
  * Validates and writes a Unicode codepoint as utf-8 bytes to p->current
  * Moves p->current past the end of the written bytes
@@ -124,12 +106,12 @@ static int write_utf8_codepoint(jsonn_parser p, int cp)
 }
 
 /*
- * Validates a sequence of utf-8 bytes from p->current
- * Moves p->current past the end of the sequence
+ * Validates and writes a sequence of utf-8 bytes to the
+ * output and returns 1
  *
- * Returns 1 if valid, else 0
+ * If invalid returns 0
  */
-static int is_valid_utf8_sequence(jsonn_parser p) 
+static int write_utf8_sequence(jsonn_parser p) 
 {
         int codepoint;
         int bar;
@@ -171,21 +153,13 @@ static int is_valid_utf8_sequence(jsonn_parser p)
                 return 0;
 
         // We have a well formed sequence
+        // If the target and source are the same then skip
+        // otherwise copy the sequence to the output
+        if(p->write != start) {
+                for(int i = 0 ; i < count ; i++)
+                        *p->write++ = start[i];
+        }
         return 1;
-}
-
-/*
- * Writes the utf-8 sequence for the Unicode replacement character
- * to the output buffer
- * Returns the number of bytes written
- */
-static int write_replacement_character(jsonn_parser p)
-{
-        int i;
-        size_t bytes = sizeof(REPLACEMENT_CHARACTER) / sizeof(REPLACEMENT_CHARACTER[0]);
-        for(i = 0 ; i < bytes ; i++)
-                *p->write++ = REPLACEMENT_CHARACTER[i];
-        return bytes;
 }
 
 /*

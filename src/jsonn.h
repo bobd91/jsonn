@@ -44,12 +44,14 @@ typedef enum {
         JSONN_ERROR_NUMBER,
         JSONN_ERROR_UTF8,
         JSONN_ERROR_STACKUNDERFLOW,
-        JSONN_ERROR_STACKOVERFLOW
+        JSONN_ERROR_STACKOVERFLOW,
+        JSONN_ERROR_FILE_READ
 } jsonn_error_code;
 
 typedef struct {
         uint8_t *bytes;
         size_t length;
+        uint8_t complete;
 } jsonn_string;
 
 typedef union {

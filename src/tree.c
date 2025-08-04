@@ -128,7 +128,7 @@ int jsonn_tree_visit(jsonn_node root, jsonn_visitor *visitor)
         return abort;
 }
 
-void jsn_tree_free(jsonn_node root)
+void jsonn_tree_free(jsonn_node root)
 {
         if(root->type != JSONN_ROOT)
                 return;

@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "jsonn.c"
+#include "unity.c"
 
 int printp(jsonn_parser p) 
 {
@@ -50,13 +50,13 @@ static int do_real(void *ctx, double d)
 
 static int do_string(void *ctx, uint8_t *bytes, size_t length)
 {
-        printf("\"%.*s\"", length, bytes);
+        printf("\"%.*s\"", (int)length, bytes);
         return 0;
 }
 
 static int do_key(void *ctx, uint8_t *bytes, size_t length) 
 {
-        printf("\"%.*s\":", length, bytes);
+        printf("\"%.*s\":", (int)length, bytes);
         return 0;
 }
 
@@ -86,7 +86,7 @@ static int do_end_object(void *ctx)
 
 static int do_error(void *ctx, jsonn_error_code code, int at)
 {
-        printf("\nError: %d [%ld]", code, at);
+        printf("\nError: %d [%d]", code, at);
         return 0;
 }
 
@@ -140,6 +140,7 @@ int main(int argc, char *argv[])
         else
                 printf("\n\nResult : %d (%d[%ld])\n", res, p->result.error.code, p->result.error.at);
 
+        jsonn_buffer_root_free(p->buffer_root);
         jsonn_free(p);
 
 

@@ -1,13 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "jsonn.h"
-
-static void *(*jsonn_alloc)(size_t) = malloc;
-static void (*jsonn_dealloc)(void *) = free;
-
-#include "parse.c"
-#include "node.c"
 
 void jsonn_set_allocator(void *(malloc)(size_t), void (*free)(void *))
 {
@@ -45,6 +38,34 @@ jsonn_type jsonn_parse(
         p->next = jsonn_init_next(p);
         p->start = p->current = p->write = json;
         p->last = json + length;
+        p->seen_eof = 1;
+        *p->last = '\0';
+        p->stack_pointer = 0;
+
+        // Skip leading byte order mark
+        p->current += bom_bytes(p);
+
+        return visitor
+                ? parse_visit(p, visitor)
+                : JSONN_ROOT;
+}
+
+jsonn_type jsonn_parse_fd(jsonn_parser p, int fd, jsonn_visitor *visitor)
+{
+        p->next = jsonn_init_next(p);
+        p->fd = fd;
+        p->buffer_root = buffer_block_new();
+        if(!p->buffer_root)
+                return alloc_error(p);
+        buffer buff = buffer_new(p->buffer_root);
+        if(!buff)
+                return alloc_error(p);
+        int res = buffer_fill(p, buff);
+        if(res == -1)
+                return file_read_error(p);
+        p->seen_eof = (0 == res);
+        p->start = p->current = buff->start;
+        p->last = buff->last;
         *p->last = '\0';
         p->stack_pointer = 0;
 

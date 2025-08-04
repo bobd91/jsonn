@@ -1,5 +1,3 @@
-#include "jsonn.h"
-
 static int visit(jsonn_visitor *visitor, jsonn_type type, jsonn_value *value)
 {
         void *ctx = visitor->ctx;
