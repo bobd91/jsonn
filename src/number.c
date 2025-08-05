@@ -117,13 +117,13 @@ static jsonn_type parse_number(jsonn_parser p)
                 errno = 0;
                 real= strtod((char *)p->current, NULL);
                 if(errno) return number_error(p);
-                p->current = pos + 1;
+                p->current = pos;
                 return set_real_result(p, real);
         } else {
                 errno = 0;
                 integer = strtol((char *)p->current, NULL, 10);
                 if(errno) return number_error(p);
-                p->current = pos + 1;
+                p->current = pos;
                 return set_integer_result(p, integer);
         }
 }

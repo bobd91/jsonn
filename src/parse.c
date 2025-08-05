@@ -128,7 +128,7 @@ static jsonn_type parse_begin_object(jsonn_parser p)
 static jsonn_type parse_end_object(jsonn_parser p) 
 {
         p->current++;
-        return(pop_next(p))
+        return (pop_next(p))
                 ? JSONN_END_OBJECT
                 : error(p, JSONN_ERROR_STACKUNDERFLOW);
 }
@@ -374,7 +374,7 @@ static jsonn_type jsonn_next(jsonn_parser p)
                         return parse_object_terminator(p);
 
                 case PARSE_EOF:
-                        if(!ensure_current(p))
+                        if(p->seen_eof && p->current == p->last)
                                 return JSONN_EOF;
                         return parse_error(p);
 
