@@ -66,11 +66,11 @@ static void block_for_items(block block_root, void (*fn)(void *))
         block blk = block_root;
         int ipb = items_per_block(blk->item_size);
         while(blk) {
-                void *item = ((void *)block_root) + sizeof(struct block_s);
+                void *item = ((void *)blk) + sizeof(struct block_s);
                 void *end = item + (ipb - blk->slots_free);
                 while(item < end) {
                         fn(item);
-                        item++;
+                        item += blk->item_size;
                 }
                 blk = blk->next;
         }

@@ -76,22 +76,22 @@ static int write_utf8_codepoint(jsonn_parser p, int cp)
         int shift = 0;
         if(cp <= _1_BYTE_MAX) {
                 // Ascii, just one byte
-                *p->current++ = cp;
+                *p->write++ = cp;
         } else if(cp <= _2_BYTE_MAX) {
                 // 2 byte UTF8, byte 1 is 110 and highest 5 bits
                 shift = 6;
-                *p->current++ = (_2_BYTE_LEADER | LO_5_BITS(cp >> shift));
+                *p->write++ = (_2_BYTE_LEADER | LO_5_BITS(cp >> shift));
         } else if(is_surrogate(cp)) {
                 // UTF-16 surrogates are not legal Unicode
                 return 0;
         } else if(cp <= _3_BYTE_MAX) {
                 // 3 byte UTF8, byte 1 is 1110 and highest 4 bits
                 shift = 12;
-                *p->current++ = (_3_BYTE_LEADER | LO_4_BITS(cp >> shift));
+                *p->write++ = (_3_BYTE_LEADER | LO_4_BITS(cp >> shift));
         } else if(cp <= CODEPOINT_MAX) {
                 // 4 byte UTF8, byte 1 is 11110 and highest 3 bytes
                 shift = 18;
-                *p->current++ = (_4_BYTE_LEADER | LO_3_BITS(cp >> shift));
+                *p->write++ = (_4_BYTE_LEADER | LO_3_BITS(cp >> shift));
         } else {
                 // value to large to be legal Unicode
                 return 0;
@@ -100,7 +100,7 @@ static int write_utf8_codepoint(jsonn_parser p, int cp)
         // high two bits '10' and next highest 6 bits from codepoint 
         while(shift > 0) {
                 shift -= 6;
-                *p->current++ = CONTINUATION_BYTE | LO_6_BITS(cp >> shift);
+                *p->write++ = CONTINUATION_BYTE | LO_6_BITS(cp >> shift);
         }
         return 1;
 }

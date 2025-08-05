@@ -310,13 +310,33 @@ static jsonn_type jsonn_next(jsonn_parser p)
 {
         jsonn_type ret;
         while(1) {
+
+                switch(p->repeat_next) {
+                case PARSE_KEY_NEXT:
+                        p->repeat_next = PARSE_NEXT;
+                        return parse_string(p, JSONN_KEY_NEXT);
+
+                case PARSE_STRING_NEXT:
+                        p->repeat_next = PARSE_NEXT;
+                        return parse_string(p, JSONN_STRING_NEXT);
+                
+                case PARSE_NEXT:
+                        break;
+
+                default:
+                        // should never get here ...
+                        return parse_error(p);
+                }
+
                 consume_whitespace(p);
+
                 int optional = 1; // are values/pairs required?
                 switch(p->next) {
 
                 // bare value with no surrounding {} or []
                 case PARSE_VALUE:
                         // {} [] will set next
+                        // as will incomplete string
                         // otherwise we should be at EOF
                         p->next = PARSE_EOF;
                         return parse_value(p, 1);

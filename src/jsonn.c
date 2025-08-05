@@ -20,6 +20,7 @@ jsonn_parser jsonn_new(jsonn_config *config)
                 p->stack_size = c.stack_size;
                 p->stack = (uint8_t *)(p + struct_bytes);
                 p->flags = c.flags;
+                p->repeat_next = PARSE_NEXT;
         }
         return p;
 }

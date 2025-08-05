@@ -26,7 +26,9 @@ typedef enum {
         JSONN_INTEGER,
         JSONN_REAL,
         JSONN_STRING,
+        JSONN_STRING_NEXT,
         JSONN_KEY,
+        JSONN_KEY_NEXT,
         JSONN_BEGIN_ARRAY,
         JSONN_END_ARRAY,
         JSONN_BEGIN_OBJECT,
@@ -89,8 +91,10 @@ typedef struct {
         int (*null)(void *ctx);
         int (*integer)(void *ctx, int64_t integer);
         int (*real)(void *ctx, double real);
-        int (*string)(void *ctx, uint8_t *bytes, size_t length);
-        int (*key)(void *ctx, uint8_t *bytes , size_t length);
+        int (*string)(void *ctx, uint8_t *bytes, size_t length, int complete);
+        int (*string_next)(void *ctx, uint8_t *bytes, size_t length, int complete);
+        int (*key)(void *ctx, uint8_t *bytes , size_t length, int complete);
+        int (*key_next)(void *ctx, uint8_t *bytes , size_t length, int complete);
         int (*begin_array)(void *ctx);
         int (*end_array)(void *ctx);
         int (*begin_object)(void *ctx);
@@ -103,7 +107,7 @@ typedef struct {
         void *ctx;
 } jsonn_visitor;
 
-void jsonn_allocator(void *(*malloc)(size_t), void (*free)(void *));
+void jsonn_set_allocator(void *(*malloc)(size_t), void (*free)(void *));
 
 jsonn_config jsonn_config_get();
 void jsonn_config_set(jsonn_config *config);

@@ -14,18 +14,21 @@ typedef enum {
         PARSE_OBJECT_MEMBER_VALUE,
         PARSE_OBJECT_TERMINATOR,
         PARSE_ARRAY_TERMINATOR,
-        PARSE_NAME,
         PARSE_VALUE,
+        PARSE_STRING_NEXT,
+        PARSE_KEY_NEXT,
+        PARSE_NEXT,
         PARSE_EOF,
         PARSE_ERROR
 } parse_next;
 
 struct jsonn_parser_s {
-        uint8_t *start;
+        uint8_t *start;   
         uint8_t *current;
         uint8_t *last;
         uint8_t *write;
         parse_next next;
+        parse_next repeat_next;
         uint16_t flags;
         jsonn_value result;
         int fd;

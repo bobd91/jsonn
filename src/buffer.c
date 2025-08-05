@@ -1,6 +1,8 @@
 #include <unistd.h>
 
+#ifndef JSONN_BUFFER_SIZE
 #define JSONN_BUFFER_SIZE 4096
+#endif
 
 typedef struct buffer_s {
         uint8_t *start;
@@ -22,6 +24,7 @@ static buffer buffer_new(block root_block)
 
         b->current = b->start;
         b->last = b->start + JSONN_BUFFER_SIZE - 1;
+        *b->last = '\0';
 
         return b;
 }
@@ -29,7 +32,8 @@ static buffer buffer_new(block root_block)
 static void buffer_free(void *item)
 {
         buffer b = item;
-        jsonn_dealloc(b->start);
+        if(b->start)    
+                jsonn_dealloc(b->start);
 }
 
 #pragma GCC diagnostic push
@@ -65,6 +69,43 @@ static int buffer_fill(jsonn_parser p, buffer buf)
 
 }
 
+
+static uint8_t *copy_next_prefix(jsonn_parser p, int count, uint8_t prefix)
+{
+        buffer buf = buffer_new(p->buffer_root);
+        if(!buf) {
+                // TODO improve error reporting
+                return NULL;
+        }
+        if(prefix)
+                *buf->current++ = prefix;
+        while(p->current < p->last)
+                *buf->current++ = *p->current++;
+        int l = buffer_fill(p, buf);
+        if(l < 0) {
+                // TODO improve error reporting
+                NULL;
+        }
+
+        p->start = buf->start;
+        p->current = buf->current;
+        p->last = buf->last;
+        p->seen_eof = (l == 0);
+
+        return p->current;
+}
+
+static uint8_t *copy_prefix(jsonn_parser p, uint8_t prefix)
+{
+        return copy_next_prefix(p, 0, prefix);
+}
+
+static uint8_t *copy_next(jsonn_parser p, int count)
+{
+        return copy_next_prefix(p, count, '\0');
+}
+
+// Unless we have already seen EOF
 // Ensure that we have count bytes together in this block or the next
 // Returns current position in the new block
 // Returns NULL if failed to allocate new block
@@ -72,26 +113,8 @@ static int buffer_fill(jsonn_parser p, buffer buf)
 static uint8_t *ensure_current_prefix(jsonn_parser p, int count, uint8_t prefix)
 {
         if(!p->seen_eof && count > p->last - p->current) {
-                buffer buf = buffer_new(p->buffer_root);
-                if(!buf) {
-                        // TODO improve error reporting
+                if(!copy_next_prefix(p, count, prefix))
                         return NULL;
-                }
-                if(prefix)
-                        *buf->current++ = prefix;
-                while(p->current < p->last)
-                        *buf->current++ = *p->current++;
-                int l = buffer_fill(p, buf);
-                if(l < 0) {
-                        // TODO improve error reporting
-                        NULL;
-                }
-
-                p->start = buf->start;
-                p->current = buf->current;
-                p->last = buf->last;
-                p->seen_eof = (l == 0);
-
         }
         return p->current;
 
@@ -100,11 +123,6 @@ static uint8_t *ensure_current_prefix(jsonn_parser p, int count, uint8_t prefix)
 static uint8_t *ensure_current(jsonn_parser p)
 {
         return ensure_current_prefix(p, 1, '\0');
-}
-
-static uint8_t *ensure_current_n(jsonn_parser p, int count)
-{
-        return ensure_current_prefix(p, count, '\0');
 }
 
 // As the other ensure_... functions this ensures that we have

@@ -25,7 +25,7 @@ static uint8_t *next_number_pos(jsonn_parser p, uint8_t *pos)
         if(p->last > ++pos)
                 return pos;
         int copy_count = p->last - p->current;
-        if(ensure_current_n(p, copy_count)) //TODO is this the same as lookahead?
+        if(copy_next(p, copy_count))
                 return p->current + copy_count;
         // failed to allocate a new block
         // returning a pointer to last (which is pointer to null byte)

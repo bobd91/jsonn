@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <fcntl.h>
+
 #include "unity.c"
 
 int printp(jsonn_parser p) 
@@ -48,15 +50,47 @@ static int do_real(void *ctx, double d)
         return 0;
 }
 
-static int do_string(void *ctx, uint8_t *bytes, size_t length)
+static int do_string(void *ctx, uint8_t *bytes, size_t length, int complete)
 {
-        printf("\"%.*s\"", (int)length, bytes);
+        if(length) {
+                char *fmt = complete
+                        ? "\"%.*s\","
+                        : "\"%.*s\n--->>>";
+                printf(fmt, (int)length, bytes);
+        }
         return 0;
 }
 
-static int do_key(void *ctx, uint8_t *bytes, size_t length) 
+static int do_string_next(void *ctx, uint8_t *bytes, size_t length, int complete)
 {
-        printf("\"%.*s\":", (int)length, bytes);
+        if(length) {
+                char *fmt = complete
+                        ? "<<<---\n%.*s\","
+                        : "<<<---\n%.*s\n--->>>";
+                printf(fmt, (int)length, bytes);
+        }
+        return 0;
+}
+
+static int do_key(void *ctx, uint8_t *bytes, size_t length, int complete) 
+{
+        if(length) {
+                char *fmt = complete
+                        ? "\"%.*s\":"
+                        : "\"%.*s\n--->>>";
+                printf(fmt, (int)length, bytes);
+        }
+        return 0;
+}
+
+static int do_key_next(void *ctx, uint8_t *bytes, size_t length, int complete) 
+{
+        if(length) {
+                char *fmt = complete
+                        ? "<<<---\n%.*s\":"
+                        : "<<<---\n%.*s\n--->>>";
+                printf(fmt, (int)length, bytes);
+        }
         return 0;
 }
 
@@ -97,7 +131,9 @@ static jsonn_callbacks callbacks = {
         .integer = do_integer,
         .real = do_real,
         .string = do_string,
+        .string_next = do_string_next,
         .key = do_key,
+        .key_next = do_key_next,
         .begin_array = do_begin_array,
         .end_array = do_end_array,
         .begin_object = do_begin_object,
@@ -110,10 +146,28 @@ static jsonn_visitor visitor = {
         .ctx = NULL
 };
 
+
+void *talloc(size_t s)
+{
+        void *p = malloc(s);
+        printf("\nAlloc  : %p\n", p);
+        return p;
+}
+
+void tfree(void *p)
+{
+        printf("\nDealloc: %p\n", p);
+        free(p);
+        return;
+}
+
+
 jsonn_parser pp;
 
 int main(int argc, char *argv[])
 {
+        //jsonn_set_allocator(talloc, tfree);
+
         jsonn_config c = jsonn_config_get();
         c.flags |=   JSONN_FLAG_COMMENTS
                    | JSONN_FLAG_TRAILING_COMMAS
@@ -127,14 +181,22 @@ int main(int argc, char *argv[])
 
         jsonn_parser p = jsonn_new(NULL); //&c);
 
-        puts(argv[1]);
         pp = p;
 
-        uint8_t buf[1024];
-        char *json = argv[1];
-        size_t len = strlen(json);
-        memcpy(buf, json, len + 1);
-        jsonn_type res = jsonn_parse(p, buf, len, &visitor);
+        jsonn_type res;
+
+        if(argc == 3 && 0 == strcmp("-e", argv[1])) {
+                puts(argv[2]);
+                uint8_t buf[1024];
+                char *json = argv[2];
+                size_t len = strlen(json);
+                memcpy(buf, json, len + 1);
+                res = jsonn_parse(p, buf, len, &visitor);
+        } else if(argc == 2) {
+                int fd = open(argv[1], O_RDONLY, "rb");
+                res = jsonn_parse_fd(p, fd, &visitor);
+        }
+
         if(res == JSONN_EOF)
                 printf("\n\nResult EOF: %d\n", res);
         else

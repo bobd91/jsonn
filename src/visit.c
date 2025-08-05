@@ -26,13 +26,29 @@ static int visit(jsonn_visitor *visitor, jsonn_type type, jsonn_value *value)
                 abort = callbacks->string
                         && callbacks->string(ctx,
                                         value->string.bytes,
-                                        value->string.length);
+                                        value->string.length,
+                                        value->string.complete);
+                break;
+        case JSONN_STRING_NEXT:
+                abort = callbacks->string_next
+                        && callbacks->string_next(ctx,
+                                        value->string.bytes,
+                                        value->string.length,
+                                        value->string.complete);
                 break;
         case JSONN_KEY:
                 abort = callbacks->key
                         && callbacks->key(ctx,
                                         value->string.bytes,
-                                        value->string.length);
+                                        value->string.length,
+                                        value->string.complete);
+                break;
+        case JSONN_KEY_NEXT:
+                abort = callbacks->key_next
+                        && callbacks->key_next(ctx,
+                                        value->string.bytes,
+                                        value->string.length,
+                                        value->string.complete);
                 break;
         case JSONN_BEGIN_ARRAY:
                 abort = callbacks->begin_array 

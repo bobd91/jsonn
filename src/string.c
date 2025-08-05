@@ -107,6 +107,18 @@ static uint8_t next_special(jsonn_parser p, char *specials)
         return *p->current;
 }
 
+// Set p->repeat_next so that parse_next() will carry on with the
+// string that we are in the middle of
+static jsonn_type string_continues(jsonn_parser p, uint8_t *start, jsonn_type type)
+{
+        if(type == JSONN_KEY)
+                p->repeat_next = PARSE_KEY_NEXT;
+        else
+                p->repeat_next = PARSE_STRING_NEXT;
+
+        return set_string_result(p, start, 0, type);
+}
+
 /*
  * Parse JSON string into utf-8
  *
@@ -197,17 +209,16 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                         // cross block boundary
                         // Simple escape sequences are 2 bytes
                         // but unicode escapes are 12 bytes
-                        if(!ensure_string(p, quote, 2)
+                        if(!ensure_string(p, 2, quote)
                                         || ('u' == *(p->current + 1)
-                                                && !ensure_string(p, quote, 12))) {
+                                                && !ensure_string(p, 12, quote))) {
                                 // had to copy escape sequence to next block
-                                // so p->current now == p->last
-                                // and we can break to allow while loop
-                                // to detect end of this block
-                                break;
+                                // return incomplete string
+                                // and set up to continue string parse next time
+                                return string_continues(p, start, type);
                         }
 
-                        // we are now happy that we have entire escape sequence
+                        // we have entire escape sequence
                         p->current++; // skip the \ without writing
 
                         byte = *p->current++;
@@ -284,9 +295,12 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                         ? set_string_result(p, start, 1, type)
                         : parse_error(p);
         }
-        
-        // end of block
-        return set_string_result(p, start, 0, type);
+
+        // Make sure next buffer starts with a quote
+        if(!copy_prefix(p, quote))
+                return alloc_error(p);
+
+        return string_continues(p, start, type); 
 }
 
 /*
