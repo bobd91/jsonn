@@ -10,6 +10,7 @@
 #include "buffer.c"
 #include "number.c"
 #include "string.c"
+#include "print.c"
 #include "visit.c"
 #include "parse.c"
 #include "jsonn.c"

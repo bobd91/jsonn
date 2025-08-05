@@ -7,16 +7,15 @@
 #define JSONN_STACK_SIZE 1024
 #endif
 
-#define JSONN_FLAG_REPLACE_ILLFORMED_UTF8     0x01
-#define JSONN_FLAG_COMMENTS                   0x02
-#define JSONN_FLAG_TRAILING_COMMAS            0x04
-#define JSONN_FLAG_SINGLE_QUOTES              0x08
-#define JSONN_FLAG_UNQUOTED_KEYS              0x10
-#define JSONN_FLAG_UNQUOTED_STRINGS           0x20
-#define JSONN_FLAG_ESCAPE_CHARACTERS          0x40
-#define JSONN_FLAG_OPTIONAL_COMMAS            0x80
-#define JSONN_FLAG_IS_OBJECT                  0x100
-#define JSONN_FLAG_IS_ARRAY                   0x200
+#define JSONN_FLAG_COMMENTS                   0x01
+#define JSONN_FLAG_TRAILING_COMMAS            0x02
+#define JSONN_FLAG_SINGLE_QUOTES              0x04
+#define JSONN_FLAG_UNQUOTED_KEYS              0x08
+#define JSONN_FLAG_UNQUOTED_STRINGS           0x10
+#define JSONN_FLAG_ESCAPE_CHARACTERS          0x20
+#define JSONN_FLAG_OPTIONAL_COMMAS            0x40
+#define JSONN_FLAG_IS_OBJECT                  0x80
+#define JSONN_FLAG_IS_ARRAY                   0x100
 
 typedef enum {
         JSONN_ROOT,
@@ -107,6 +106,8 @@ typedef struct {
         void *ctx;
 } jsonn_visitor;
 
+typedef struct jsonn_print_ctx_s jsonn_print_ctx;
+
 void jsonn_set_allocator(void *(*malloc)(size_t), void (*free)(void *));
 
 jsonn_config jsonn_config_get();
@@ -119,6 +120,11 @@ jsonn_type jsonn_parse(
                 jsonn_parser parser, 
                 uint8_t *json, 
                 size_t length,
+                jsonn_visitor *visitor);
+
+jsonn_type jsonn_parse_fd(
+                jsonn_parser parser,
+                int fd,
                 jsonn_visitor *visitor);
 
 jsonn_node jsonn_parse_tree(jsonn_parser p,

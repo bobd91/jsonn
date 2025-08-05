@@ -1,0 +1,9 @@
+{"Hi":
+        [
+                5.6, 
+                true, 
+                false, 
+                null, 
+                "A longish string", 
+                "Another string with escapes 3=\u0033 see"
+        ]}

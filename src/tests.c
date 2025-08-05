@@ -26,126 +26,13 @@ int printp(jsonn_parser p)
         return 0;
 }
 
-static int do_boolean(void *ctx, int is_true) 
-{
-        printf("%s,", is_true ? "true" : "false");
-        return 0;
-}
 
-static int do_null(void *ctx) 
-{
-        printf("null,");
-        return 0;
-}
-
-static int do_integer(void *ctx, int64_t l) 
-{
-        printf("%ld,", l);
-        return 0;
-}
-
-static int do_real(void *ctx, double d) 
-{
-        printf("%lf,", d);
-        return 0;
-}
-
-static int do_string(void *ctx, uint8_t *bytes, size_t length, int complete)
-{
-        if(length) {
-                char *fmt = complete
-                        ? "\"%.*s\","
-                        : "\"%.*s\n--->>>";
-                printf(fmt, (int)length, bytes);
-        }
-        return 0;
-}
-
-static int do_string_next(void *ctx, uint8_t *bytes, size_t length, int complete)
-{
-        if(length) {
-                char *fmt = complete
-                        ? "<<<---\n%.*s\","
-                        : "<<<---\n%.*s\n--->>>";
-                printf(fmt, (int)length, bytes);
-        }
-        return 0;
-}
-
-static int do_key(void *ctx, uint8_t *bytes, size_t length, int complete) 
-{
-        if(length) {
-                char *fmt = complete
-                        ? "\"%.*s\":"
-                        : "\"%.*s\n--->>>";
-                printf(fmt, (int)length, bytes);
-        }
-        return 0;
-}
-
-static int do_key_next(void *ctx, uint8_t *bytes, size_t length, int complete) 
-{
-        if(length) {
-                char *fmt = complete
-                        ? "<<<---\n%.*s\":"
-                        : "<<<---\n%.*s\n--->>>";
-                printf(fmt, (int)length, bytes);
-        }
-        return 0;
-}
-
-static int do_begin_array(void *ctx)
-{
-        printf("[");
-        return 0;
-}
-
-static int do_end_array(void *ctx)
-{
-        printf("]");
-        return 0;
-}
-
-static int do_begin_object(void *ctx) 
-{
-        printf("{");
-        return 0;
-}
-
-static int do_end_object(void *ctx) 
-{
-        printf("}");
-        return 0;
-}
-
-static int do_error(void *ctx, jsonn_error_code code, int at)
-{
-        printf("\nError: %d [%d]", code, at);
-        return 0;
-}
-
-
-static jsonn_callbacks callbacks = {
-        .boolean = do_boolean,
-        .null = do_null,
-        .integer = do_integer,
-        .real = do_real,
-        .string = do_string,
-        .string_next = do_string_next,
-        .key = do_key,
-        .key_next = do_key_next,
-        .begin_array = do_begin_array,
-        .end_array = do_end_array,
-        .begin_object = do_begin_object,
-        .end_object = do_end_object,
-        .error = do_error
-};
-
-static jsonn_visitor visitor = {
-        .callbacks = &callbacks,
-        .ctx = NULL
-};
-
+/*
+*       static jsonn_visitor visitor = {
+*               .callbacks = &callbacks,
+*               .ctx = &pctx
+*       };
+*/      
 
 void *talloc(size_t s)
 {
@@ -171,7 +58,6 @@ int main(int argc, char *argv[])
         jsonn_config c = jsonn_config_get();
         c.flags |=   JSONN_FLAG_COMMENTS
                    | JSONN_FLAG_TRAILING_COMMAS
-                   | JSONN_FLAG_REPLACE_ILLFORMED_UTF8
                    | JSONN_FLAG_OPTIONAL_COMMAS
                    | JSONN_FLAG_UNQUOTED_KEYS
                    | JSONN_FLAG_UNQUOTED_STRINGS
@@ -184,6 +70,9 @@ int main(int argc, char *argv[])
         pp = p;
 
         jsonn_type res;
+
+        jsonn_print_ctx ctx;
+        jsonn_visitor visitor = jsonn_stream_printer(stdout, 1, &ctx);
 
         if(argc == 3 && 0 == strcmp("-e", argv[1])) {
                 puts(argv[2]);

@@ -1,0 +1,7 @@
+Compile with
+
+gcc -DJSONN_BLOCK_SIZE=60 -DJSONN_BUFFER_SIZE=320
+
+so that the included json files will trigger block and buffer allocations
+and items of interest will be on the borders
+
