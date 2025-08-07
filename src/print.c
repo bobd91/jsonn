@@ -1,34 +1,58 @@
 #include <stdio.h>
 #include <fcntl.h>
+#include <math.h>
 
-typedef struct jsonn_print_ctx_s {
-        int fd;
+// TODO error handling of writer errors
+
+#define INT_FROM_VOIDPTR(X) ((int)(int64_t)X)
+#define INT_TO_VOIDPTR(X)   ((void *)(int64_t)X)
+
+char number_buffer[32];
+
+typedef struct jsonn_print_ctx_s *jsonn_print_ctx;
+
+struct jsonn_print_ctx_s {
         int level;
         int comma;
         int key;
         int pretty;
         int nl;
-} jsonn_print_ctx;
+        int (*write)(void *, uint8_t *, size_t, int);
+        void *writer;
+};
 
-typedef jsonn_print_ctx *print_ctx;
+static int write_c(jsonn_print_ctx ctx, char c)
+{
+        return ctx->write(ctx->writer, (uint8_t *)&c, 1, 0);
+}
 
-static void print_indent(print_ctx ctx)
+static int write_s(jsonn_print_ctx ctx, char *s)
+{
+        return ctx->write(ctx->writer, (uint8_t *)s, strlen(s), 0);
+}
+
+static int write_utf8(jsonn_print_ctx ctx, uint8_t *bytes, size_t count) 
+{
+        return ctx->write(ctx->writer, bytes, count, 1);
+}
+
+static void print_indent(jsonn_print_ctx ctx)
 {
         // Avoid leading newline
         if(ctx->nl)
-                printf("\n");
+                write_c(ctx, '\n');
         else
                 ctx->nl = 1;
 
         for(int i = 0 ; i < ctx->level ; i++)
-                printf("    ");
+                write_s(ctx, "    ");
 }
 
-static void print_prefix(print_ctx ctx)
+static void print_prefix(jsonn_print_ctx ctx)
 {
         if(!ctx->key) {
                 if(ctx->comma)
-                        printf(",");
+                        write_c(ctx, ',');
                 if(ctx->pretty)
                         print_indent(ctx);
                 
@@ -37,14 +61,14 @@ static void print_prefix(print_ctx ctx)
         ctx->key = 0;
 }
 
-static void print_begin_prefix(print_ctx ctx)
+static void print_begin_prefix(jsonn_print_ctx ctx)
 {
         print_prefix(ctx);
         ctx->comma = 0;
         ctx->level++;
 }
 
-static void print_end_prefix(print_ctx ctx)
+static void print_end_prefix(jsonn_print_ctx ctx)
 {
         ctx->level--;
         if(ctx->comma) {
@@ -54,124 +78,116 @@ static void print_end_prefix(print_ctx ctx)
         ctx->comma = 1;
 }
 
-static void print_key_suffix(print_ctx ctx)
+static void print_key_suffix(jsonn_print_ctx ctx)
 {
-        printf(":");
+        write_c(ctx, ':');
         if(ctx->pretty)
-                printf(" ");
+                write_c(ctx, ' ');
         ctx->key = 1;
 }
 
 static int print_boolean(void *ctx, int is_true) 
 {
         print_prefix(ctx);
-        printf("%s", is_true ? "true" : "false");
+        write_s(ctx, is_true ? "true" : "false");
         return 0;
 }
 
 static int print_null(void *ctx) 
 {
         print_prefix(ctx);
-        printf("null");
+        write_s(ctx, "null");
         return 0;
 }
 
 static int print_integer(void *ctx, int64_t l) 
 {
         print_prefix(ctx);
-        printf("%ld", l);
+        int r = snprintf(number_buffer, sizeof(number_buffer), "%ld", l);
+        if(r < 0) {
+                // TODO better errors
+                return 1;
+        }
+
+        write_s(ctx, number_buffer);
         return 0;
 }
 
 static int print_real(void *ctx, double d) 
 {
-        print_prefix(ctx);
-        printf("%.16g", d);
-        return 0;
-}
-
-static int print_string(void *ctx, uint8_t *bytes, size_t length, int complete)
-{
-        print_prefix(ctx);
-        if(length) {
-                char *fmt = complete
-                        ? "\"%.*s\""
-                        : "\"%.*s";
-                printf(fmt, (int)length, bytes);
+        if(!isnormal(d)) {
+                // TODO better errors
+                return 1;
         }
-        return 0;
-}
-
-static int print_string_next(void *ctx, uint8_t *bytes, size_t length, int complete)
-{
-        if(length) {
-                char *fmt = complete
-                        ? "%.*s\""
-                        : "%.*s";
-                printf(fmt, (int)length, bytes);
+        print_prefix(ctx);
+        int r = snprintf(number_buffer, sizeof(number_buffer), "%16g", d);
+        if(r < 0) {
+                // TODO better errors
+                return 1;
         }
+
+        // snprintf(%16g) writes at the bak of the buffer
+        // so we get lots of leading spaces
+        char *s = number_buffer;
+        while(*s == ' ')
+                s++;
+        write_s(ctx, s);
+
+        // real number without decimal point or exponent
+        // add .0 at the end to preserve type at next JSON decode
+        if(r == strcspn(number_buffer, ".e"))
+                write_s(ctx, ".0");
+
         return 0;
 }
 
-static int print_key(void *ctx, uint8_t *bytes, size_t length, int complete) 
+static int print_string(void *ctx, uint8_t *bytes, size_t length)
 {
         print_prefix(ctx);
-        if(length) {
-                char *fmt = complete
-                        ? "\"%.*s\""
-                        : "\"%.*s";
-                printf(fmt, (int)length, bytes);
-                if(complete)
-                        print_key_suffix(ctx);
-        }
+        write_utf8(ctx, bytes, length); 
         return 0;
 }
 
-static int print_key_next(void *ctx, uint8_t *bytes, size_t length, int complete) 
+static int print_key(void *ctx, uint8_t *bytes, size_t length) 
 {
-        if(length) {
-                char *fmt = complete
-                        ? "%.*s\""
-                        : "%.*s";
-                printf(fmt, (int)length, bytes);
-                if(complete)
-                        print_key_suffix(ctx);
-        }
+        print_prefix(ctx);
+        write_utf8(ctx, bytes, length);
+        print_key_suffix(ctx);  
         return 0;
 }
 
 static int print_begin_array(void *ctx)
 {
         print_begin_prefix(ctx);
-        printf("[");
+        write_c(ctx, '[');
         return 0;
 }
 
 static int print_end_array(void *ctx)
 {
         print_end_prefix(ctx);
-        printf("]");
+        write_c(ctx, ']');
         return 0;
 }
 
 static int print_begin_object(void *ctx) 
 {
         print_begin_prefix(ctx);
-        printf("{");
+        write_c(ctx, '{');
         return 0;
 }
 
 static int print_end_object(void *ctx) 
 {
         print_end_prefix(ctx);
-        printf("}");
+        write_c(ctx, '}');
         return 0;
 }
 
 static int print_error(void *ctx, jsonn_error_code code, int at)
 {
-        printf("\nError: %d [%d]", code, at);
-        return 0;
+        fprintf(stderr, "\nError: %d [%d]", code, at);
+        return 1;
 }
 
 
@@ -181,9 +197,7 @@ static jsonn_callbacks printer_callbacks = {
         .integer = print_integer,
         .real = print_real,
         .string = print_string,
-        .string_next = print_string_next,
         .key = print_key,
-        .key_next = print_key_next,
         .begin_array = print_begin_array,
         .end_array = print_end_array,
         .begin_object = print_begin_object,
@@ -191,20 +205,45 @@ static jsonn_callbacks printer_callbacks = {
         .error = print_error
 };
 
-jsonn_visitor jsonn_file_printer(int fd, int pretty, jsonn_print_ctx *ctx)
+
+int write_file(void *ctx, uint8_t *bytes, size_t count, int encode_utf8)
 {
-        ctx->fd = fd;
+        // stop compiler warning
+        // we know what we are doing ... lol
+        int fd = INT_FROM_VOIDPTR(ctx);
+        uint8_t *start = bytes;
+        size_t size = count;
+        while(size) {
+                size_t w = write(fd, start, size);
+                if(w < 0) {
+                        // TODO errors
+                        return (int)w;
+                }
+                start += w;
+                size -= w;
+        }
+        return count;
+}
+
+jsonn_visitor jsonn_file_printer(int fd, int pretty)
+{
+        jsonn_visitor v = jsonn_visitor_new(
+                        &printer_callbacks, 
+                        sizeof(struct jsonn_print_ctx_s));
+        if(!v)
+                return NULL;
+
+        jsonn_print_ctx ctx = v->ctx;
+        ctx->write = write_file;
+        ctx->writer = INT_TO_VOIDPTR(fd);
         ctx->pretty = pretty;
-        jsonn_visitor v = {
-                .callbacks = &printer_callbacks,
-                .ctx = ctx
-        };
+
         return v;
 }
 
-jsonn_visitor jsonn_stream_printer(FILE *stream, int pretty, jsonn_print_ctx *ctx)
+jsonn_visitor jsonn_stream_printer(FILE *stream, int pretty)
 {
-        return jsonn_file_printer(fileno(stream), pretty, ctx);
+        return jsonn_file_printer(fileno(stream), pretty);
 }
 
 

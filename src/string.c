@@ -70,12 +70,10 @@ static int parse_unicode_escapes(jsonn_parser p) {
 static jsonn_type set_string_result(
                 jsonn_parser p,
                 uint8_t *start, 
-                int complete,
                 jsonn_type type) 
 {
         p->result.string.bytes = start;
         p->result.string.length = p->write - start;
-        p->result.string.complete = complete;
         return type;
 }
 
@@ -116,7 +114,7 @@ static jsonn_type string_continues(jsonn_parser p, uint8_t *start, jsonn_type ty
         else
                 p->repeat_next = PARSE_STRING_NEXT;
 
-        return set_string_result(p, start, 0, type);
+        return set_string_result(p, start, type);
 }
 
 /*
@@ -202,7 +200,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
                 case '\'':
                 case ' ':
                         p->current++;
-                        return set_string_result(p, start, 1, type);
+                        return set_string_result(p, start, type);
 
                 case '\\':
                         // Need to lookahead as escape sequence could
@@ -292,7 +290,7 @@ static jsonn_type parse_string(jsonn_parser p, jsonn_type type)
         if(p->seen_eof) {
                 // eof in string permitted if not quoted
                 return (!quote)
-                        ? set_string_result(p, start, 1, type)
+                        ? set_string_result(p, start, type)
                         : parse_error(p);
         }
 

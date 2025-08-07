@@ -1,136 +1,179 @@
+
 typedef struct jsn_parser_s *jsn_parser;
+typedef struct jsn_context_s *jsn_context;
+typedef struct jsn_events_s jsn_events;
+typedef struct str_buf_s *str_buf;
 
-typedef struct jsn_tree_s *jsn_tree;
+struct jsn_parser_s {
+};
 
-typedef struct jsn_events_s {
-        int null(jsn_ctx *);
-        int boolean(jsn_ctx *, int);
-        int integer(jsn_ctx *, int64_t);
-        int real(jsn_ctx *, double);
-        int key(jsn_ctx *, uint8_t *bytes, size_t count);
-        int string(jsn_ctx *, uint8_t *bytes, size_t count);
-        int begin_array(jsn_ctx *);
-        int end_array(jsn_ctx *);
-        int begin_object(jsn_ctx *);
-        int end_object(jsn_ctx *);
-        int eof(jsn_ctx *);
-
-        int str(jsn_ctx, char *);
-} jsn_events;
-
-typedef struct {
-        int errno;
-        char *msg;
-        int at;
-} jsn_error;
-
-typedef struct {
-        int flags;
+struct jsn_context_s {
         jsn_events *events;
-        void *ptr;
-} jsn_ctx;
+        str_buf buf;
+        void *ctx;
+};
 
 
+struct str_buf_s {
+        uint8_t *bytes;
+        size_t count;
+        size_t length;
+};
 
+struct jsn_events_s {
+        int (*begin_map)(jsn_context);
+        int (*end_map)(jsn_context);
+        int (*begin_array)(jsn_context);
+        int (*end_array)(jsn_context);
+        int (*null)(jsn_context);
+        int (*boolean)(jsn_context, int);
+        int (*integer)(jsn_context, long);
+        int (*real)(jsn_context, double);
+        int (*map_key)(jsn_context, uint8_t *, size_t);
+        int (*string)(jsn_context, uint8_t *, size_t);
+};
 
-jsn_parser jsn_parser_new();
-void jsn_parser_free(jsn_parser p);
+jsn_parser jsn_parser_new(jsn_config *config);
+void jsn_parser_free(jsn_parser parser);
 
-
-int jsn_bytes_parse(jsn_parser p, uint8_t bytes, size_t count, jsn_ctx *ctx);
-int jsn_file_parse(jsn_parser p, int fd, jsn_ctx *ctx);
-int jsn_stream_parse(jsn_parser p, FILE *stream, jsn_ctx *ctx);
-
-jsn_ctx jsn_file_write(int fd, int prettify);
-jsn_ctx jsn_steam_write(FILE *stream, int prettify);
-jsn_ctx jsn_tree_build();
-
-int jsn_tree_read(jsn_tree tree, jsn_ctx *ctx); 
-void jsn_tree_free(jsn_tree tree);
-
-jsn_ctx jsn_context(jsn_events *events, void *ptr);
-
-jsn_error jsn_parser_error(jsn_parser p);
-jsn_error jsn_context_error(jsn_ctx ctx);
-
-int jsn_file_parse(jsn_parser p, int fd, jsn_ctx *ctx)
+jsn_context jsn_context_new(jsn_events *events, void *ctx)
 {
-        jsn_ctx->ptr = jsn_file_read_ctx(p->allocator, fd);
-        return parse_buf(p, ctx);
+        assert(events);
+
+        jsn_context = jsn_alloc(sizeof(struct jsn_context_s));
+
+        if(!jsn_context)
+                return NULL;
+
+        jsn_context->buf = str_buf_new(STR_BUF_SIZE);
+        if(!jsn_context->buf) {
+                jsn_context_free(jsn_context);
+                return NULL;
+        }
+
+        jsn_context->events = events;
+        jsn_context->ctx = ctx;
+
+        return jsn_context;
 }
 
-int jsn_stream_parse(jsn_parser p, FILE *stream, jsn_ctx *ctx)
+
+void jsn_context_free(jsn_context ctx)
 {
-        return jsn_file_parse(p, fileno(stream), ctx);
+        assert(ctx);
+
+        str_buf_free(ctx->buf);
+        jsn_dealloc(ctx);
 }
 
-int jsn_parse(jsn_parser p, jsn_events *custom_events) 
+int jsn_parse(jsn_parser parser, uint8_t *json, size_t count, jsn_context ctx)
 {
-        return jsn_stream_parse(
-                        p, 
-                        stdin, 
-                        jsn_context(custom_events, NULL));
+        assert(parser);
+        assert(ctx);
+        
+        while(1) {
+                switch(parse_next_state(parser)) {
+                case JSN_NULL:
+                        jsn_null(ctx);
+                        break;
+
+                case JSN_TRUE:
+                        jsn_boolean(ctx, 1);
+                        break;
+
+                case JSN_FALSE:
+                        jsn_boolean(ctx, 0);
+                        break;
+
+                case JSN_STRING_START:
+                        break;
+
+                case JSN_STRING_END:
+                        jsn_string(ctx, ..., ...);
+                        break;
+
+                case JSN_STRING_ESCAPE:
+                        parse_string_escapes();
+                        break;
+
+                case JSN_NUMBER_START:
+                        parse_number();
+                        jsn_integer/jsn_real
+                        break;
+
+                case JSN_MAP_START:
+
+                case JSN_MAP_END:
+                case JSN_ARRAY_START:
+                case JSN_ARRAY_END:
+                case JSN_BUFFER_END:
+
+
 }
 
-jsn_ctx jsn_file_write(inf fd, int prettify)
+int jsn_begin_map(jsn_context);
+int jsn_end_map(jsn_context);
+int jsn_begin_array(jsn_context);
+int jsn_end_array(jsn_context);
+int jsn_null(jsn_context);
+int jsn_boolean(jsn_context, int);
+int jsn_integer(jsn_context, long);
+int jsn_real(jsn_context, double);
+int jsn_map_key(jsn_context, uint8_t *, size_t)
+int jsn_string(jsn_context, uint8_t *, size_t);
+int jsn_key(jsn_context, char *);
+int jsn_str(jsn_context, char *);
+
+str_buf str_buf_new(size_t length)
 {
-        return jsn_context(jsn_file_events, jsn_file_write_ctx(fd, prettify));
+        str_buf buf = jsn_alloc(sizeof(struct str_buf_s));
+
+        if(!buf)
+                return NULL;
+
+        str_buf->bytes = jsn_alloc(length);
+        if(!str_buf->bytes) {
+                jsn_dealloc(str_buf);
+                return NULL;
+        }
+
+        str_buf->count = 0;
+        str_buf->length = length;
+
+        return str_buf;
 }
 
-jsn_ctx jsn_stream_write(FILE *stream, int prettify)
+void str_buf_free(str_buf buf)
 {
-        return jsn_file_write(fileno(stream), prettify);
+        assert(buf);
+
+        jsn_dealloc(str_buf->bytes);
+        jsn_dealloc(str_buf);
 }
 
-jsn_ctx jsn_context(jsn_events *events, void *ptr) {
-        jsn_ctx ctx = {
-                .events = jsn_monitor_events,
-                .ptr = jsn_monitor(events, ptr)
-        };
-        return ctx;
+str_buf str_buf_append(str_buf current_buf, uint8_t *bytes, size_t count)
+{
+        assert(current_buf);
+
+        str_buf buf = current_buf;
+        size_t overflow = count + buf->count - buf->length;
+        if(overflow > 0) {
+                size_t new_length = buf->length 
+                        + STR_BUF_SIZE * (1 + overflow / buf->length);
+                buf = jsn_realloc(buf, new_length);
+                if(!buf)
+                        return NULL;
+                buf->length = new_length
+        }
+        memcpy(buf->bytes + buf->count, bytes, count);
+        buf->count += count;
+
+        return str_buf;
 }
 
 
-                        
 
 
 
 
-/*
- * jsn_ctx ctx = jsn_stream_write(stdout, 0);
- * ctx.events->begin_object(ctx);
- * ctx.events->str(ctx, "key1");
- * ctx.events->begin_array(ctx);
- * ctx.events->integer(ctx, 55);
- * ctx.events->boolean(ctx, 0);
- * ctx.events->cstr(ctx, "Hello");
- * ctx.events->end_array(ctx);
- * ctx.events->str(ctx, "key2");
- * ctx.events->real(ctx, 9.5);
- * ctx.events->end_object(ctx);
- * ctx.events->eof(ctx);  // frees ctx
- *
- * => '{"key1":[55,false,"Hello"],"key2":9.5}'
- *
- * Lots of boilerplate, ideal for macros
- * Based on i3's macros for using yajl_:wqgen
- *
- * j_ctx(stream_write, stdout, 0);
- * j_begin_object();
- * j_str("key2");
- * j_begin_array();
- * j_integer(55);
- * j_boolean(0);
- * j_str("Hello");
- * j_end_array();
- * j_str("key");
- * j_real(9.5);
- * j_end_object();
- * j_eof();
- * 
- * To disable macro generation:
- *
- * #define JSN_NO_MACROS
- * #include "jsn.h"
- */
 

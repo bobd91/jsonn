@@ -407,7 +407,7 @@ static jsonn_type jsonn_next(jsonn_parser p)
 
 static jsonn_type parse_visit(
                 jsonn_parser p,
-                jsonn_visitor *visitor)
+                jsonn_visitor visitor)
 {
         jsonn_type type;
         int abort = 0;

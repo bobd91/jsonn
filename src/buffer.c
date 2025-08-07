@@ -29,8 +29,9 @@ static buffer buffer_new(block root_block)
         return b;
 }
 
-static void buffer_free(void *item)
+static void buffer_free(void *item, void *ctx)
 {
+        (void)ctx;
         buffer b = item;
         if(b->start)    
                 jsonn_dealloc(b->start);
@@ -38,10 +39,10 @@ static void buffer_free(void *item)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
-static void jsonn_buffer_root_free(block buffer_root)
+static void buffer_root_free(block buffer_root)
 {
         if(buffer_root) {
-                block_for_items(buffer_root, buffer_free);
+                block_for_items(buffer_root, buffer_free, NULL);
                 block_root_free(buffer_root);
         }
 }

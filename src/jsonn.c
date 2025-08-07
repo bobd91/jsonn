@@ -2,9 +2,13 @@
 #include <string.h>
 
 
-void jsonn_set_allocator(void *(malloc)(size_t), void (*free)(void *))
+void jsonn_set_allocators(
+                void *(*malloc)(size_t),
+                void *(*realloc)(void *, size_t),
+                void (*free)(void *))
 {
         jsonn_alloc = malloc;
+        jsonn_realloc = realloc;
         jsonn_dealloc = free;
 }
 
@@ -34,7 +38,7 @@ jsonn_type jsonn_parse(
                 jsonn_parser p, 
                 uint8_t *json, 
                 size_t length,
-                jsonn_visitor *visitor)
+                jsonn_visitor visitor)
 {
         p->next = jsonn_init_next(p);
         p->start = p->current = p->write = json;
@@ -51,7 +55,7 @@ jsonn_type jsonn_parse(
                 : JSONN_ROOT;
 }
 
-jsonn_type jsonn_parse_fd(jsonn_parser p, int fd, jsonn_visitor *visitor)
+jsonn_type jsonn_parse_fd(jsonn_parser p, int fd, jsonn_visitor visitor)
 {
         p->next = jsonn_init_next(p);
         p->fd = fd;

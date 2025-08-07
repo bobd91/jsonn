@@ -8,10 +8,11 @@
 #include "config.c"
 #include "block.c"
 #include "buffer.c"
+#include "strbuf.c"
 #include "number.c"
 #include "string.c"
-#include "print.c"
 #include "visit.c"
+#include "print.c"
 #include "parse.c"
 #include "jsonn.c"
 

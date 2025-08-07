@@ -71,8 +71,7 @@ int main(int argc, char *argv[])
 
         jsonn_type res;
 
-        jsonn_print_ctx ctx;
-        jsonn_visitor visitor = jsonn_stream_printer(stdout, 1, &ctx);
+        jsonn_visitor visitor = jsonn_stream_printer(stdout, 1);
 
         if(argc == 3 && 0 == strcmp("-e", argv[1])) {
                 puts(argv[2]);
@@ -80,10 +79,10 @@ int main(int argc, char *argv[])
                 char *json = argv[2];
                 size_t len = strlen(json);
                 memcpy(buf, json, len + 1);
-                res = jsonn_parse(p, buf, len, &visitor);
+                res = jsonn_parse(p, buf, len, visitor);
         } else if(argc == 2) {
                 int fd = open(argv[1], O_RDONLY, "rb");
-                res = jsonn_parse_fd(p, fd, &visitor);
+                res = jsonn_parse_fd(p, fd, visitor);
         }
 
         if(res == JSONN_EOF)
@@ -91,7 +90,7 @@ int main(int argc, char *argv[])
         else
                 printf("\n\nResult : %d (%d[%ld])\n", res, p->result.error.code, p->result.error.at);
 
-        jsonn_buffer_root_free(p->buffer_root);
+        jsonn_visitor_free(visitor);
         jsonn_free(p);
 
 
