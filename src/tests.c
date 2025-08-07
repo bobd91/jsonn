@@ -71,7 +71,9 @@ int main(int argc, char *argv[])
 
         jsonn_type res;
 
-        jsonn_visitor visitor = jsonn_stream_printer(stdout, 1);
+        //      jsonn_visitor visitor = jsonn_stream_printer(stdout, 1);
+        str_buf sbuf = str_buf_new();
+        jsonn_visitor visitor = jsonn_buffer_printer(sbuf, 1);
 
         if(argc == 3 && 0 == strcmp("-e", argv[1])) {
                 puts(argv[2]);
@@ -82,8 +84,17 @@ int main(int argc, char *argv[])
                 res = jsonn_parse(p, buf, len, visitor);
         } else if(argc == 2) {
                 int fd = open(argv[1], O_RDONLY, "rb");
+                if(fd == -1) {
+                        perror("Failed to open file");
+                        exit(1);
+                }
+
                 res = jsonn_parse_fd(p, fd, visitor);
         }
+
+        uint8_t *bytes;
+        size_t count = str_buf_content(sbuf, &bytes);
+        printf("%.*s\n", (int)count, bytes);
 
         if(res == JSONN_EOF)
                 printf("\n\nResult EOF: %d\n", res);

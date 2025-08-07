@@ -13,11 +13,6 @@ static int items_per_block(size_t item_size)
         return JSONN_MAX_ITEM_SIZE / item_size;
 }
 
-static int item_count(block blk)
-{
-        return items_per_block(blk->item_size) - blk->slots_free;
-}
-
 static void *next_item_ptr(block blk)
 {
         int size = blk->item_size;
@@ -64,11 +59,6 @@ static void *block_item_new(block block_root)
         void *item = next_item_ptr(current);
         current->slots_free--;
         return item;
-}
-
-static void *first_item(block blk)
-{
-        return ((void *)blk) + sizeof(struct block_s);
 }
 
 static void block_for_items(block block_root, void (*fn)(void *, void *), void *ctx)

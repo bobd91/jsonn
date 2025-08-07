@@ -1,0 +1,178 @@
+{
+"$whitespace": ["\t", "\n", "\r", " "],
+"$0-9": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+"$1-9": ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+"$hex-digit": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+                  "a", "b", "c", "d", "e", "f",
+                  "A", "B", "C", "D", "E", "F"],
+"$exponent": ["e", "E"],
+"$exponent-prefix": ["+", "-"],
+"$single-char-escapes": ["\"", "\\", "/", "b", "f", "n", "r", "t"],
+
+"whitespace": {
+        "$whitespace": "whitespace",
+        "/": [ {"ifconfig": "comments"}, "comment-leader" ],
+        "???": "value"
+},
+
+"comment-leader": {
+        "*": "block-comment",
+        "/": "line-comment",
+        "...": "whitespace"
+},
+
+"block-comment": {
+        "*": "uncomment-leader",
+        "...": "block-comment"
+},
+
+"uncomment-leader": {
+        "/": "whitespace",
+        "...": "block-comment"
+},
+
+"line-comment": {
+        "$newline": "whitespace",
+        "...": "line-comment"
+},
+
+
+"value": {
+        "n": [ {"push": "null"}, "null-2"],
+        "t": [ {"push": "true"}, "true-2"],
+        "f": [ {"push": "false"}, "false-2"],
+        "-": [ {"push": "number"}, "minus"],
+        "0": [ {"push": "number"}, "zero-number"],
+        "$1-9": [ {"push": "number"}, "number"],
+        "\"": [ {"push": "string"}, {"push": "double-quote"}, "string" ],
+        "'": [ {"ifconfig": "single-quotes"},
+                [{"push": "string"}, {"push": "single-quote"}, "string"]
+        ],
+        "{": [ {"push": "object"}, "key" ],
+        "[": [ {"push": "array"}, "value" ],
+        "???": [ {"ifconfig": "unquoted-strings"}, 
+                [{"push": "string"}, "string"] ]
+},
+
+"null-2": { "u": "null-3" },
+"null-3": { "l": "null-4" },
+"null-4": { "l": {"pop": "null"} },
+
+"true-2": { "r": "true-3" },
+"true-3": { "u": "true-4" },
+"true-4": { "e": {"pop": "true"} },
+
+"false-2": { "a": "false-3" },
+"false-3": { "l": "false-4" },
+"false-4": { "s": "false-5" },
+"false-5": { "e": {"pop": "false"} },
+
+
+"minus": {
+        "0": "zero-number",
+        "$1-9": "number"
+},
+
+"zero-number": {
+        ".": "fraction",
+        "$exponent": "exponent-prefix",
+        "???": {"pop": "number"}
+},
+
+"number": {
+        "$0-9": "number",
+        ".": "fraction",
+        "$exponent": "exponent-prefix",
+        "???": {"pop": "number"}
+},
+
+"fraction": {
+        "$0-9": "fraction",
+        "$exponent": "exponent-prefix",
+        "???": {"pop": "number"}
+},
+
+"exponent-prefix": {
+        "$exponent-prefix": "exponent+",
+        "$0-9": "exponent"
+},
+
+"exponent+": {
+        "$0-9": "exponent"
+},
+
+"exponent": {
+        "$0-9": "exponent",
+        "???": {"pop": "number"}
+},
+
+"key": {
+        "\"": [ {"push": "key"}, {"push": "double-quote"}, "string" ],
+        "'": [ {"ifconfig": "single-quotes"},
+                [{"push": "key"}, {"push": "single-quote"}, "string"]
+        ],
+        "???": [ {"ifconfig": "unquoted-keys"},
+                [{"push": "key"}, "string"]]
+},
+
+"string": {
+        "\\": [ {"push": "escape"}, 
+                [{"ifconfig": "escape-characters"}, 
+                        "escape-chars", 
+                        "escape" ]
+        ],
+        "\"": [ {"popif": "double-quote"}, "string"],
+        "'": [ {"popif": "single-quote"}, "string"],
+        " ": [ {"popif": "key"}, {"popif": "string"}, "string" ],
+        "0x21-0x7F": "string",
+        "0xC0-0xDF": [ {"push": "utf8"}, "1-continuation"],
+        "0xE0-0xEF": [ {"push": "utf8"}, "2-continuation"],
+        "0xF0-0xF7": [ {"push": "utf8"}, "3-continuation"]
+},
+
+"1-continuation": { "0x80-0xBF": {"pop": "utf8"} },
+"2-continuation": { "0x80-0xBF": "1-continuation" },
+"3-continuation": { "0x80-0xBF": "2-continuation" },
+
+"escape": {
+        "$single_char_escapes": {"pop": "escape"},
+        "'": [ {"ifconfig": "single-quotes"}, {"pop": "escape"}],
+        "u": "hex-4"
+},
+
+"escape-chars": {
+        "...": {"pop": "escape"}
+},
+
+"hex-4": { "$hex-digit": "hex-3"},
+"hex-3": { "$hex-digit": "hex-2"},
+"hex-2": { "$hex-digit": "hex-1"},
+"hex-1": { "$hex-digit": {"pop": "escape"} },
+
+"after-key": {
+        ":": "value"
+},
+
+"after-value": {
+        ",": [{"ifconfig": "trailing-commas"}, 
+                "value-or-close", 
+                [{"ifpeek": "object"}, "key", "value"]
+        ],
+        "}": {"popif": "object"}, 
+        "]": {"popif": "array"},
+        "???": [{"ifconfig": "optional-commas"},
+                [{"ifpeek": "object"}, "key", "value"]
+        ]
+},
+
+"value-or-close": {
+        "}": {"popif": "object"},
+        "]": {"popif": "array"},
+        "???": [{"ifpeek": "object"}, "key", "value"]
+}
+}
+
+
+
+
+

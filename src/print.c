@@ -4,12 +4,13 @@
 
 // TODO error handling of writer errors
 
-#define INT_FROM_VOIDPTR(X) ((int)(int64_t)X)
-#define INT_TO_VOIDPTR(X)   ((void *)(int64_t)X)
+#define CTX_TO_INT(X) ((int)(int64_t)X)
+#define INT_TO_CTX(X)   ((void *)(int64_t)X)
 
 char number_buffer[32];
 
 typedef struct jsonn_print_ctx_s *jsonn_print_ctx;
+typedef int (*write_fn)(void *, uint8_t *, size_t, int);
 
 struct jsonn_print_ctx_s {
         int level;
@@ -17,23 +18,23 @@ struct jsonn_print_ctx_s {
         int key;
         int pretty;
         int nl;
-        int (*write)(void *, uint8_t *, size_t, int);
-        void *writer;
+        write_fn write;
+        void *write_ctx;
 };
 
 static int write_c(jsonn_print_ctx ctx, char c)
 {
-        return ctx->write(ctx->writer, (uint8_t *)&c, 1, 0);
+        return ctx->write(ctx->write_ctx, (uint8_t *)&c, 1, 0);
 }
 
 static int write_s(jsonn_print_ctx ctx, char *s)
 {
-        return ctx->write(ctx->writer, (uint8_t *)s, strlen(s), 0);
+        return ctx->write(ctx->write_ctx, (uint8_t *)s, strlen(s), 0);
 }
 
 static int write_utf8(jsonn_print_ctx ctx, uint8_t *bytes, size_t count) 
 {
-        return ctx->write(ctx->writer, bytes, count, 1);
+        return ctx->write(ctx->write_ctx, bytes, count, 1);
 }
 
 static void print_indent(jsonn_print_ctx ctx)
@@ -144,14 +145,18 @@ static int print_real(void *ctx, double d)
 static int print_string(void *ctx, uint8_t *bytes, size_t length)
 {
         print_prefix(ctx);
+        write_c(ctx, '"');
         write_utf8(ctx, bytes, length); 
+        write_c(ctx, '"');
         return 0;
 }
 
 static int print_key(void *ctx, uint8_t *bytes, size_t length) 
 {
         print_prefix(ctx);
+        write_c(ctx, '"');
         write_utf8(ctx, bytes, length);
+        write_c(ctx, '"');
         print_key_suffix(ctx);  
         return 0;
 }
@@ -205,27 +210,7 @@ static jsonn_callbacks printer_callbacks = {
         .error = print_error
 };
 
-
-int write_file(void *ctx, uint8_t *bytes, size_t count, int encode_utf8)
-{
-        // stop compiler warning
-        // we know what we are doing ... lol
-        int fd = INT_FROM_VOIDPTR(ctx);
-        uint8_t *start = bytes;
-        size_t size = count;
-        while(size) {
-                size_t w = write(fd, start, size);
-                if(w < 0) {
-                        // TODO errors
-                        return (int)w;
-                }
-                start += w;
-                size -= w;
-        }
-        return count;
-}
-
-jsonn_visitor jsonn_file_printer(int fd, int pretty)
+jsonn_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
 {
         jsonn_visitor v = jsonn_visitor_new(
                         &printer_callbacks, 
@@ -234,17 +219,62 @@ jsonn_visitor jsonn_file_printer(int fd, int pretty)
                 return NULL;
 
         jsonn_print_ctx ctx = v->ctx;
-        ctx->write = write_file;
-        ctx->writer = INT_TO_VOIDPTR(fd);
+
+        ctx->level = 0;
+        ctx->comma = 0;
+        ctx->key = 0;
         ctx->pretty = pretty;
+        ctx->nl = 0;
+        ctx->write = write;
+        ctx->write_ctx = write_ctx;
 
         return v;
+}
+
+int write_fd(void *ctx, uint8_t *bytes, size_t count, int encode_utf8)
+{
+        // TODO utf8 encoding
+        int fd = CTX_TO_INT(ctx);
+        uint8_t *start = bytes;
+        size_t size = count;
+        while(size) {
+                size_t w = write(fd, start, size);
+                if(w < 0) {
+                        // TODO errors
+                        return -1;
+                }
+                start += w;
+                size -= w;
+        }
+        return 1;
+}
+
+jsonn_visitor jsonn_file_printer(int fd, int pretty)
+{
+        return print_visitor(write_fd, INT_TO_CTX(fd), pretty);
 }
 
 jsonn_visitor jsonn_stream_printer(FILE *stream, int pretty)
 {
         return jsonn_file_printer(fileno(stream), pretty);
 }
+
+int write_buffer(void *ctx, uint8_t *bytes, size_t count, int encode_utf8)
+{
+        str_buf sbuf = ctx;
+        // TODO encode_utf8
+        return str_buf_append(sbuf, bytes, count)
+                ? 1
+                : -1;
+}
+
+jsonn_visitor jsonn_buffer_printer(str_buf sbuf, int pretty)
+{
+        return print_visitor(write_buffer, sbuf, pretty);
+}
+
+
+
 
 
 

@@ -50,9 +50,9 @@ int replacement_length = 3;
 #define LO_6_BITS(x)  ((x) & 0x3F)
 
 // byte identification for decoding
-#define IS__2_BYTE_LEADER(x) (_2_BYTE_LEADER == HI_3_BITS(x))
-#define IS__3_BYTE_LEADER(x) (_3_BYTE_LEADER == HI_4_BITS(x))
-#define IS__4_BYTE_LEADER(x) (_4_BYTE_LEADER == HI_5_BITS(x))
+#define IS_2_BYTE_LEADER(x) (_2_BYTE_LEADER == HI_3_BITS(x))
+#define IS_3_BYTE_LEADER(x) (_3_BYTE_LEADER == HI_4_BITS(x))
+#define IS_4_BYTE_LEADER(x) (_4_BYTE_LEADER == HI_5_BITS(x))
 #define IS_CONTINUATION(x)  (CONTINUATION_BYTE == HI_2_BITS(x))
 
 static int is_surrogate(int cp) 
@@ -120,15 +120,15 @@ static int write_utf8_sequence(jsonn_parser p)
         uint8_t byte = *start;
         int count;
 
-        if(IS__2_BYTE_LEADER(byte)) {
+        if(IS_2_BYTE_LEADER(byte)) {
                 codepoint = LO_5_BITS(byte);
                 bar = _1_BYTE_MAX;
                 cont = 1;
-        } else if(IS__3_BYTE_LEADER(byte)) {
+        } else if(IS_3_BYTE_LEADER(byte)) {
                 codepoint = LO_4_BITS(byte);
                 bar = _2_BYTE_MAX;
                 cont = 2;
-        } else if(IS__4_BYTE_LEADER(byte)) {
+        } else if(IS_4_BYTE_LEADER(byte)) {
                 codepoint = LO_3_BITS(byte);
                 bar = _3_BYTE_MAX;
                 cont = 3;
