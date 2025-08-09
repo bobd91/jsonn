@@ -22,7 +22,7 @@ jsonn_parser jsonn_new(jsonn_config *config)
         jsonn_parser p = jsonn_alloc(struct_bytes + stack_bytes);
         if(p) {
                 p->stack_size = c.stack_size;
-                p->stack = (uint8_t *)(p + struct_bytes);
+                p->stack = (uint8_t *)(((void *)p) + struct_bytes);
                 p->flags = c.flags;
                 p->repeat_next = PARSE_NEXT;
         }

@@ -106,19 +106,17 @@ static int write_utf8_codepoint(jsonn_parser p, int cp)
 }
 
 /*
- * Validates and writes a sequence of utf-8 bytes to the
- * output and returns 1
- *
- * If invalid returns 0
+ * Validates a sequence of utf-8 bytes and 
+ * returns the byte length if valid, else 0
  */
-static int write_utf8_sequence(jsonn_parser p) 
+static int valid_utf8_sequence(uint8_t *bytes, size_t count) 
 {
         int codepoint;
         int bar;
         int cont;
-        uint8_t *start = p->current++;
-        uint8_t byte = *start;
-        int count;
+        uint8_t *start = bytes;
+        uint8_t byte = *start++;
+        int length;
 
         if(IS_2_BYTE_LEADER(byte)) {
                 codepoint = LO_5_BITS(byte);
@@ -140,8 +138,12 @@ static int write_utf8_sequence(jsonn_parser p)
                 return 0;
         }
 
-        for(count = 1 ; count <= cont ; count++) {
-                byte = *p->current++;
+        // Do we have enough input for leader and continuation bytes
+        if(count < 1 + cont)
+                return 0;
+
+        for(length = 1 ; length <= cont ; length++) {
+                byte = *start++;
                 if(!IS_CONTINUATION(byte)) 
                         return 0;
                 codepoint = (codepoint << 6) | LO_6_BITS(byte);
@@ -152,14 +154,31 @@ static int write_utf8_sequence(jsonn_parser p)
         if(codepoint <= bar || !is_valid_codepoint(codepoint)) 
                 return 0;
 
-        // We have a well formed sequence
-        // If the target and source are the same then skip
-        // otherwise copy the sequence to the output
-        if(p->write != start) {
-                for(int i = 0 ; i < count ; i++)
-                        *p->write++ = start[i];
+        return length;
+}
+
+
+/*
+ * Validates and writes a sequence of utf-8 bytes to the
+ * output and returns 1
+ *
+ * If invalid returns 0
+ */
+static int write_utf8_sequence(jsonn_parser p) 
+{
+        int count = valid_utf8_sequence(p->current, p->last - p->current);
+
+        if(count) {
+                // We have a well formed sequence
+                // If the target and source are the same then skip
+                // otherwise copy the sequence to the output
+                if(p->write != p->current) {
+                        for(int i = 0 ; i < count ; i++)
+                                *p->write++ = *p->current++;
+                }
         }
-        return 1;
+
+        return count;
 }
 
 /*
@@ -175,19 +194,19 @@ static size_t bom_bytes(jsonn_parser p)
 }
 
 /*
- * Returns non-zero if the supplied utf-16 is valid
- * as the first item of a surrogate pair  
+ * Returns non-zero if the supplied byte is valid
+ * as the first byte of a surrogate pair  
  */
-static int is_first_surrogate(uint16_t utf16)
+static int is_first_surrogate(uint8_t byte)
 {
-        return IS_1ST_SURROGATE(utf16);
+        return IS_1ST_SURROGATE(byte);
 }
 
 /*
- * Returns non-zero if the supplied utf-16 is valid
+ * Returns non-zero if the supplied byte is valid
  * as the second item of a surrogate pair  
  */
-static int is_second_surrogate(uint16_t byte)
+static int is_second_surrogate(uint8_t byte)
 {
         return IS_2ND_SURROGATE(byte);
 }

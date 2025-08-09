@@ -100,6 +100,7 @@ static int pop_next(jsonn_parser p)
 
 static int push_next(jsonn_parser p, parse_next next) 
 {
+
         size_t sp = p->stack_pointer;
         if(sp >= p->stack_size) 
                 return 0;
@@ -111,7 +112,6 @@ static int push_next(jsonn_parser p, parse_next next)
                 p->stack[offset] |= mask;
         else 
                 p->stack[offset] &= ~mask;
-
         p->stack_pointer++;
         p->next = next;
         return 1;

@@ -64,6 +64,7 @@ static int buffer_fill(jsonn_parser p, buffer buf)
 
         }
         buf->last -= max;
+        *buf->last = '\0';
         buf->current = buf->start;
 
         return max == 0;

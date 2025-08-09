@@ -10,7 +10,7 @@
 char number_buffer[32];
 
 typedef struct jsonn_print_ctx_s *jsonn_print_ctx;
-typedef int (*write_fn)(void *, uint8_t *, size_t, int);
+typedef int (*write_fn)(void *, uint8_t *, size_t);
 
 struct jsonn_print_ctx_s {
         int level;
@@ -22,19 +22,84 @@ struct jsonn_print_ctx_s {
         void *write_ctx;
 };
 
+static int write_utf8(jsonn_print_ctx ctx, uint8_t *bytes, size_t count) 
+{
+        uint8_t *s = bytes;
+        uint8_t *last_s = s;
+
+        char e[3] = "\\_";
+        char u[7] = "\\u0000";
+        char *print_p;
+        int print_w = 0;
+
+        while((s - bytes) < count) {
+                if(*s < 0x20) {
+                        print_p = e;
+                        print_w = 2;
+                        switch(*s) {
+                        case '\b':
+                                e[1] = 'b';
+                                break;
+                        case '\t':
+                                e[1] = 't';
+                                break;
+                        case '\n':
+                                e[1] = 'n';
+                                break;
+                        case '\f':
+                                e[1] = 'f';
+                                break;
+                        case '\r':
+                                e[1] = 'r';
+                                break;
+                        default:
+                                snprintf(u + 4, 3, "%.2X", (int)*s);
+                                print_p = u;
+                                print_w = 6;
+                        }
+                        s++;
+                } else if(*s < 0x80) {
+                        print_p = e;
+                        print_w = 2;
+                        switch(*s) {
+                        case '"':
+                                e[1] = '"';
+                                break;
+                        case '\\':
+                                e[1] = '\\';
+                                break;
+                        default:
+                                print_p = NULL;
+                        }
+                        s++;
+                } else {
+                        print_p = NULL;
+                        int v = valid_utf8_sequence(s, count - (s - bytes));
+                        if(!v)
+                                return 0;
+                        s += v;
+                }
+                if(print_p) {
+                        // We have to print an escape sequence 
+                        // first print stuff we skipped
+                        if(!ctx->write(ctx->write_ctx, last_s, s - last_s - 1))
+                                return 0;
+                        last_s = s;
+                        if(!ctx->write(ctx->write_ctx, (uint8_t *)print_p, print_w))
+                                return 0;
+                }
+        }
+        return ctx->write(ctx->write_ctx, last_s, s - last_s);
+}
+
 static int write_c(jsonn_print_ctx ctx, char c)
 {
-        return ctx->write(ctx->write_ctx, (uint8_t *)&c, 1, 0);
+        return ctx->write(ctx->write_ctx, (uint8_t *)&c, 1);
 }
 
 static int write_s(jsonn_print_ctx ctx, char *s)
 {
-        return ctx->write(ctx->write_ctx, (uint8_t *)s, strlen(s), 0);
-}
-
-static int write_utf8(jsonn_print_ctx ctx, uint8_t *bytes, size_t count) 
-{
-        return ctx->write(ctx->write_ctx, bytes, count, 1);
+        return ctx->write(ctx->write_ctx, (uint8_t *)s, strlen(s));
 }
 
 static void print_indent(jsonn_print_ctx ctx)
@@ -231,9 +296,8 @@ jsonn_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
         return v;
 }
 
-int write_fd(void *ctx, uint8_t *bytes, size_t count, int encode_utf8)
+int write_fd(void *ctx, uint8_t *bytes, size_t count)
 {
-        // TODO utf8 encoding
         int fd = CTX_TO_INT(ctx);
         uint8_t *start = bytes;
         size_t size = count;
@@ -259,10 +323,9 @@ jsonn_visitor jsonn_stream_printer(FILE *stream, int pretty)
         return jsonn_file_printer(fileno(stream), pretty);
 }
 
-int write_buffer(void *ctx, uint8_t *bytes, size_t count, int encode_utf8)
+int write_buffer(void *ctx, uint8_t *bytes, size_t count)
 {
         str_buf sbuf = ctx;
-        // TODO encode_utf8
         return str_buf_append(sbuf, bytes, count)
                 ? 1
                 : -1;

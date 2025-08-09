@@ -1,3 +1,5 @@
+#define JSONN_BUFFER_SIZE 16384
+
 #include "jsonn.h"
 #include "block.h"
 #include "parse.h"
