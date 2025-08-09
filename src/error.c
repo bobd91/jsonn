@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 static void dump_p(jsonn_parser p)
 {
         fprintf(stderr, "Parser Error:\n");

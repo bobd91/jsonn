@@ -15,7 +15,7 @@
 "_whitespace": {
         "$whitespace": "whitespace",
         "/": [ {"ifconfig": "comments"}, "comment-leader" ],
-        "???": {"whitespace": null}
+        "???": {"after-whitespace": null}
 },
 
 "comment-leader": {
@@ -99,16 +99,16 @@
 
 "null-2": { "u": "null-3" },
 "null-3": { "l": "null-4" },
-"null-4": { "l": {"pop": "null"} },
+"null-4": { "l": [{"pop": "null"}, "after-value"] },
 
 "true-2": { "r": "true-3" },
 "true-3": { "u": "true-4" },
-"true-4": { "e": {"pop": "true"} },
+"true-4": { "e": [{"pop": "true"}, "after-value"] },
 
 "false-2": { "a": "false-3" },
 "false-3": { "l": "false-4" },
 "false-4": { "s": "false-5" },
-"false-5": { "e": {"pop": "false"} },
+"false-5": { "e": [{"pop": "false"}, "after-value"] },
 
 
 
@@ -120,20 +120,20 @@
 "zero-number": {
         ".": "fraction",
         "$exponent": "exponent-prefix",
-        "???": {"pop": "number"}
+        "???": [{"pop": "number"}, "after-value"]
 },
 
 "number": {
         "$0-9": "number",
         ".": "fraction",
         "$exponent": "exponent-prefix",
-        "???": {"pop": "number"}
+        "???": [{"pop": "number"}, "after-value"]
 },
 
 "fraction": {
         "$0-9": "fraction",
         "$exponent": "exponent-prefix",
-        "???": {"pop": "number"}
+        "???": [{"pop": "number"}, "after-value"]
 },
 
 "exponent-prefix": {
@@ -147,7 +147,7 @@
 
 "exponent": {
         "$0-9": "exponent",
-        "???": {"pop": "number"}
+        "???": [{"pop": "number"}, "after-value"]
 },
 
 
@@ -155,10 +155,8 @@
 
 "string": {
         "\\": [ {"push": "escape"}, 
-                [{"ifconfig": "escape-characters"}, 
-                        "escape-chars", 
-                        "escape" ]
-        ],
+                [{"ifconfig": "escape-characters"}, "escape-chars"], 
+                "escape" ],
         "\"": [ [{"ifpop": "double-quote"}, 
                         [{"ifpop": "key"}, "after-key"], 
                         [{"ifpop": "string"}, "after-value"]],
@@ -178,18 +176,18 @@
         "0xF0-0xF7": [ {"push": "utf8"}, "3-continuation"]
 },
 
-"1-continuation": { "0x80-0xBF": {"pop": "utf8"} },
+"1-continuation": { "0x80-0xBF": [{"popx": "utf8"}, "string"] },
 "2-continuation": { "0x80-0xBF": "1-continuation" },
 "3-continuation": { "0x80-0xBF": "2-continuation" },
 
 "escape": {
-        "$single_char_escapes": {"pop": "escape"},
-        "'": [ {"ifconfig": "single-quotes"}, {"pop": "escape"}],
+        "$single_char_escapes": [{"pop": "escape"}, "string"],
+        "'": [ {"ifconfig": "single-quotes"}, [{"pop": "escape"}, "string"]],
         "u": "hex-1"
 },
 
 "escape-chars": {
-        "...": {"pop": "escape"}
+        "...": [{"pop": "escape"}, "string"]
 },
 
 "hex-1": {
@@ -217,7 +215,7 @@
 "hex-4": { 
         "$hex-digit": [ 
                 [{"ifpeek": "surrogate"}, "low-surrogate"],
-                {"pop": "escape"}
+                [{"pop": "escape"}, "string"]
         ]
 },
 

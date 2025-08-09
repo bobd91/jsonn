@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #ifndef JSONN_STACK_SIZE
 #define JSONN_STACK_SIZE 1024
@@ -127,6 +128,11 @@ jsonn_type jsonn_parse_fd(
                 int fd,
                 jsonn_visitor visitor);
 
+jsonn_type jsonn_parse_stream(
+                jsonn_parser parser,
+                FILE *stream,
+                jsonn_visitor visitor);
+
 jsonn_node jsonn_parse_tree(jsonn_parser p,
                 uint8_t *json,
                 size_t length);
@@ -141,5 +147,7 @@ jsonn_visitor jsonn_prettifier();
 
 void jsonn_parse_start(jsonn_parser parser, uint8_t *json, size_t length);
 jsonn_type jsonn_parse_next(jsonn_parser parser);
+
+jsonn_value jsonn_parse_result(jsonn_parser);
 
 /* TODO: _find, _find_any, ... ? */

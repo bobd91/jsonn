@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 
@@ -82,6 +83,11 @@ jsonn_type jsonn_parse_fd(jsonn_parser p, int fd, jsonn_visitor visitor)
                 : JSONN_ROOT;
 }
 
+jsonn_type jsonn_parse_stream(jsonn_parser p, FILE *stream, jsonn_visitor visitor)
+{
+        return jsonn_parse_fd(p, fileno(stream), visitor);
+}
+
 void jsonn_parse_start(
                 jsonn_parser p,
                 uint8_t *json,
@@ -93,4 +99,9 @@ void jsonn_parse_start(
 jsonn_type jsonn_parse_next(jsonn_parser p)
 {
         return jsonn_next(p);
+}
+
+jsonn_value jsonn_parse_result(jsonn_parser p)
+{
+        return p->result;
 }

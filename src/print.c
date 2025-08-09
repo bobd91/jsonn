@@ -74,10 +74,18 @@ static int write_utf8(jsonn_print_ctx ctx, uint8_t *bytes, size_t count)
                         s++;
                 } else {
                         print_p = NULL;
+                        // we validate UTF8 sequences from outside
+                        // but expect stuff from inside to be validated
+
+#ifdef JSONN_VALIDATE_UTF8_OUT
                         int v = valid_utf8_sequence(s, count - (s - bytes));
                         if(!v)
                                 return 0;
                         s += v;
+#else
+                        s++;
+#endif
+
                 }
                 if(print_p) {
                         // We have to print an escape sequence 
