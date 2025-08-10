@@ -15,7 +15,7 @@
 "_whitespace": {
         "$whitespace": "whitespace",
         "/": [ {"ifconfig": "comments"}, "comment-leader" ],
-        "???": {"after-whitespace": null}
+        "???": {"next_token": ""}
 },
 
 "comment-leader": {
