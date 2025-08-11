@@ -54,6 +54,11 @@ str_buf str_buf_append(str_buf sbuf, uint8_t *bytes, size_t count)
         return sbuf;
 }
 
+str_buf str_buf_append_chars(str_buf sbuf, char *str)
+{
+        return str_buf_append(sbuf, (uint8_t *)str, strlen(str));
+}
+
 size_t str_buf_content(str_buf sbuf, uint8_t **bytes)
 {
         assert(sbuf);

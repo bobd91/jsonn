@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "jsonn.h"
+#include "unity.c"
 
 
 typedef struct state_s *state;
@@ -17,66 +17,9 @@ typedef struct class_list_s *class_list;
 typedef struct rule_list_s *rule_list;
 typedef struct match_list_s *match_list;
 typedef struct action_list_s *action_list;
+typedef struct action_renderer_s *action_renderer;
 
 #define MAX_CHARS_IN_CLASS 22
-
-typedef struct define_config {
-        char *name;
-        char *define;
-} config_flag;
-
-define_config stack_object = { .name = "object", .define = "STACK_OBJECT" };
-define_config stack_array = { .name = "array", .define = "STACK_ARRAY" };
-
-define_config[] config_stacks[] {
-        stack_object,
-        stack_array
-};
-
-define_config state_null = { .name = "null", .define = "STATE_NULL" };
-define_config state_true = { .name = "true", .define = "STATE_TRUE" };
-define_config state_false = { .name = "false", .define = "STATE_FALSE" };
-define_config state_number = { .name = "number", .define = "STATE_NUMBER" };
-define_config state_key = { .name = "key", .define = "STATE_KEY" };
-define_config state_string = { .name = "string", .define = "STATE_STRING" };
-define_config state_double_quote = { .name = "double-quote", .define = "STATE_DOUBLE_QUOTE" };
-define_config state_single_quote = { .name = "single-quote", .define = "STATE_SINGLE_QUOTE" };
-define_config state_escape = { .name = "escape", .define = "STATE_ESCAPE" };
-define_config state_utf8 = { .name = "utf8", .define = "STATE_UTF8" };
-define_config state_surrogate = { .name = "surrogate", .define = "STATE_SURROGATE" };
-
-define_config config_states[] {
-        state_null,
-        state_true,
-        state_false,
-        state_number,
-        state_key,
-        state_string,
-        state_double_quote,
-        state_single_quote,
-        state_escape,
-        state_utf8,
-        state_surrgate
-};
-
-
-define_config config_comments = { .name = "comments", .define = "JSONN_FLAG_COMMENTS" };
-define_config config_trailing_commas = { .name = "trailing_commas", .define = "JSONN_FLAG_TRAILING_COMMAS" };
-define_config config_single_quotes = { .name = "single_quotes", .define = "JSONN_FLAG_SINGLE_QUOTES" };
-define_config config_unquoted_keys = { .name = "unquoted_keys", .define = "JSONN_FLAG_UNQUOTED_KEYS" };
-define_config config_unquoted_strings = { .name = "unquoted_strings", .define = "JSONN_FLAG_UNQUOTED_STRINGS" };
-define_config config_escape_characters = { .name = "escape_characters", .define = "JSONN_FLAG_ESCAPE_CHARACTERS" };
-define_config config_optional_commas = { .name = "optional_commas", .define = "JSONN_FLAG_OPTIONAL_COMMAS" };
-
-define_config config_flags[] = {
-        config_comments,
-        config_trailing_commas,
-        config_single_quotes,
-        config_unquoted_keys,
-        config_unquoted_strings,
-        config_escape_characters,
-        config_optional_commas
-};
 
 struct state_s {
         class_list classes;
@@ -85,32 +28,23 @@ struct state_s {
 
 struct class_s {
         char *name;
-        char chars[MAX_CHARS_IN_CLASS];
+        uint8_t chars[MAX_CHARS_IN_CLASS];
 };
-
-typedef enum {
-        RULE_WHITESPACE,
-        RULE_TOKEN,
-        RULE_OTHER
-} rule_type;
 
 struct rule_s {
         char *name;
-        rule_type type;
+        int id;
         match_list matches;
+        uint8_t states[256];
 };
 
 typedef enum {
         MATCH_CLASS,
         MATCH_CHAR,
         MATCH_RANGE,
-        MATCH_SPECIAL
+        MATCH_ANY,
+        MATCH_VIRTUAL
 } match_type;
-
-typedef enum {
-        DO_CONSUME,
-        DONT_CONSUME
-} special;
 
 struct range_s {
         uint8_t start;
@@ -120,13 +54,13 @@ struct range_s {
 struct match_s {
         match_type type;
         union {
-                char *match_class_name;
-                class match_class;
-                char match_char;
-                range match_range;
-                special match_special;
+                char *class_name;
+                class class;
+                uint8_t character;
+                range range;
         } match;
         action action;
+        action_renderer renderer;
 };
 
 typedef enum {
@@ -139,36 +73,14 @@ struct action_s {
         action_type type;
         union {
                 action_list actions;
-                builtin action_command;
-                char *action_rule_name;
-                rule action_rule;
+                builtin command;
+                char *rule_name;
+                rule rule;
         } action;
 };
 
-typedef enum {
-        PUSH,
-        POP,
-        POPX,
-        IFPOP,
-        IFPEEK,
-        IFNPEEK,
-        IFCONFIG,
-        NEXT_TOKEN
-} builtin_id;
-
-char *builtin_names[] = {
-        "push",
-        "pop",
-        "popx",
-        "ifpop",
-        "ifpeek",
-        "ifnpeek",
-        "ifconfig",
-        "next_token"
-};
-
 struct builtin_s {
-        builtin_id id;
+        char *name;
         char *arg;
 };
 
@@ -192,6 +104,13 @@ struct action_list_s {
         action_list next;
 };
 
+struct action_renderer_s {
+        uint8_t id;
+        str_buf sbuf;
+};
+
+static uint8_t gen_rule_id = 0;
+static uint8_t gen_renderer_id = 0x80;
 
 void warn(char *fmt, ...)
 {
@@ -290,16 +209,6 @@ void append_rule(state states, rule r)
         }
         last->next = rl;
 }       
-
-builtin_id builtin_lookup(char *name)
-{
-        for(int i = 0 ; i < sizeof(builtin_names) ; i++) {
-                if(0 == strcmp(name, builtin_names[i]))
-                        return i;
-        }
-        fail("Unknown builtin %s", name);
-        return -1;
-}
         
 builtin parse_builtin(jsonn_parser p)
 {
@@ -308,13 +217,11 @@ builtin parse_builtin(jsonn_parser p)
         jsonn_type type = jsonn_parse_next(p);
         expect_type(type, JSONN_KEY);
         char *key = result_str(p);
-        int id = builtin_lookup(key);
 
         type = jsonn_parse_next(p);
         expect_type(type, JSONN_STRING);
 
-
-        b->id = id;
+        b->name = key;
         b->arg = result_str(p);
         
         expect_next(JSONN_END_OBJECT, p);
@@ -331,11 +238,11 @@ action parse_action(jsonn_parser p)
         switch(type) {
         case JSONN_STRING:
                 act->type = ACTION_RULE;
-                act->action.action_rule_name = result_str(p);
+                act->action.rule_name = result_str(p);
                 break;
         case JSONN_BEGIN_OBJECT:
                 act->type = ACTION_COMMAND;
-                act->action.action_command = parse_builtin(p);
+                act->action.command = parse_builtin(p);
                 break;
         case JSONN_BEGIN_ARRAY:
                 act->type = ACTION_LIST;
@@ -380,7 +287,7 @@ match parse_match(jsonn_parser p)
                 // never get here
         case 1:
                 m->type = MATCH_CHAR;
-                m->match.match_char = *chars;
+                m->match.character = *chars;
                 break;
         case 9:
                 unsigned int r1, r2;
@@ -388,25 +295,23 @@ match parse_match(jsonn_parser p)
                         if(r1 >= r2)
                                 fail("Invalid range: %s", chars);
                         m->type = MATCH_RANGE;
-                        m->match.match_range.start = r1;
-                        m->match.match_range.end = r2;
+                        m->match.range.start = r1;
+                        m->match.range.end = r2;
                         break;
                 }
                 // fallthrough
         default:
                 if('$' == *chars) {
                         m->type = MATCH_CLASS;
-                        m->match.match_class_name = chars + 1;
+                        m->match.class_name = chars + 1;
                         break;
                 }
 
                 if(0 == strcmp("...", chars)) {
-                        m->type = MATCH_SPECIAL;
-                        m->match.match_special = 1;
+                        m->type = MATCH_ANY;
                         break;
-                } if(0 == strcmp("???", chars)) {
-                        m->type = MATCH_SPECIAL;
-                        m->match.match_special = 0;
+                } else if(0 == strcmp("???", chars)) {
+                        m->type = MATCH_VIRTUAL;
                         break;
                 }
                 
@@ -473,18 +378,26 @@ void add_class(state states, char *name, jsonn_parser p)
         append_class(states, parse_class(name, p));
 }
 
-rule parse_rule(char *name, rule_type type, jsonn_parser p)
+int rule_is_virtual(rule r)
+{
+        // rule with single "???" match clause
+        return r->matches->this->type == MATCH_VIRTUAL
+                        && !(r->matches->next);
+}
+
+rule parse_rule(char *name, jsonn_parser p)
 {
         rule r = fmalloc(sizeof(struct rule_s));
         r->name = name;
-        r->type = type;
         r->matches = parse_match_list(p);
+        r->id = rule_is_virtual(r) ? -1 : gen_rule_id++;
+
         return r;
 }
 
-void add_rule(state states, char *name, rule_type type, jsonn_parser p)
+void add_rule(state states, char *name, jsonn_parser p)
 {
-        append_rule(states, parse_rule(name, type, p));
+        append_rule(states, parse_rule(name, p));
 }
 
 
@@ -528,9 +441,9 @@ int validate_action(state states, action a)
                 // validated at parse time
                 break;
         case ACTION_RULE:
-                char *name = a->action.action_rule_name;
-                a->action.action_rule = find_rule(states, name);
-                if(!a->action.action_rule) {
+                char *name = a->action.rule_name;
+                a->action.rule = find_rule(states, name);
+                if(!a->action.rule) {
                         warn("Cannot find rule %s", name);
                         res = 0;
                 }
@@ -542,10 +455,10 @@ int validate_action(state states, action a)
 int validate_match(state states, match m)
 {
         int res = 1;
-        if(m->type == MATCH_CLASS && !m->match.match_class) {
-                char *name = m->match.match_class_name;
-                m->match.match_class = find_class(states, name);
-                if(!m->match.match_class) {
+        if(m->type == MATCH_CLASS && !m->match.class) {
+                char *name = m->match.class_name;
+                m->match.class = find_class(states, name);
+                if(!m->match.class) {
                         warn("Cannot find class %s", name);
                         res = 0;
                 }
@@ -587,11 +500,11 @@ state parse_state(jsonn_parser p)
                 if('$' == *key) {
                         add_class(states, key + 1, p);
                 } else if('_' == *key) {
-                        add_rule(states, key + 1, RULE_WHITESPACE, p);
+                        add_rule(states, key + 1, p);
                 } else if('*' == *key) {
-                        add_rule(states, key + 1, RULE_TOKEN, p);
+                        add_rule(states, key + 1, p);
                 } else {
-                        add_rule(states, key, RULE_OTHER, p);
+                        add_rule(states, key, p);
                 }
                 type = jsonn_parse_next(p);
         }
@@ -600,7 +513,152 @@ state parse_state(jsonn_parser p)
         return states;
 }
 
-void render_states(state states, char *file_prefix)
+void render(action_renderer r, char *str)
+{
+        str_buf_append_chars(r->sbuf, str);
+}
+
+void render_command(action_renderer r, builtin command)
+{
+        int is_if =  (0 == strncmp("if", command->name, 2));
+        if(is_if)
+                render(r, "if(");
+        render(r, command->name);
+        if(strlen(command->arg))
+                render(r, "-");
+        render(r, command->arg);
+        render(r, "()");
+        if(is_if)
+                render(r, ")\n");
+        else
+                render(r, ";\n");
+}
+
+void render_rule_state_name(action_renderer r, char *state)
+{
+        render(r, "state_");
+        render(r, state);
+}
+
+void render_actions(action_renderer, action_list);
+
+void render_action(action_renderer ar, action a)
+{
+        switch(a->type) {
+        case ACTION_LIST:
+                render_actions(ar, a->action.actions);
+                break;
+        case ACTION_COMMAND:
+                render_command(ar, a->action.command);
+                break;
+        case ACTION_RULE:
+                rule r = a->action.rule;
+                if(r->id < 0) {
+                       render_action(ar, r->matches->this->action);
+                } else {
+                        render_rule_state_name(ar, r->name);
+                }
+        }
+}
+
+void render_actions(action_renderer r, action_list al)
+{
+        while(al) {
+                render_action(r, al->this);
+                al = al->next;
+        }
+}
+
+action_renderer action_renderer_new()
+{
+        action_renderer r = fmalloc(sizeof(struct action_renderer_s));
+        r->id = gen_renderer_id++;
+        r->sbuf = str_buf_new();
+        return r;
+}
+
+uint8_t render_match_action(match m)
+{
+        action a = m->action;
+        uint8_t s = 0xFF; // error
+
+        switch(a->type) {
+        case ACTION_LIST:
+                m->renderer = action_renderer_new();
+                render_actions(m->renderer, a->action.actions);
+                s = m->renderer->id;
+                break;
+        case ACTION_COMMAND:
+                m->renderer = action_renderer_new();
+                render_command(m->renderer, a->action.command);
+                s = m->renderer->id;
+                break;
+        case ACTION_RULE:
+                rule r = a->action.rule;
+                if(r->id < 0) {
+                       s = render_match_action(r->matches->this);
+                } else {
+                        s = r->id;
+                }
+        }
+
+        return s;
+}
+
+uint8_t rule_default_state(rule r)
+{
+        match_list ml = r->matches;
+        while(ml) {
+                match m = ml->this;
+                if(m->type == MATCH_ANY) {
+                        return render_match_action(m);
+                        break;
+                }
+                ml = ml->next;
+        }
+
+        return -1; //state_error;
+}
+
+void render_rule(rule r) 
+{
+        if(r->id < 0)
+                return;
+
+        match_list ml = r->matches;
+
+        memset(r->states, rule_default_state(r), 256);
+        while(ml) {
+                int len;
+                match m = ml->this;
+                uint8_t s = render_match_action(m);
+                switch(m->type) {
+                case MATCH_CLASS:
+                        uint8_t *chars = m->match.class->chars;
+                        len = strlen((char *)chars);
+                        for(int i = 0 ; i < len ; i++)
+                                r->states[chars[i]] = s;
+                        break;
+                case MATCH_CHAR:
+                        r->states[m->match.character] = s;
+                        break;
+                case MATCH_RANGE:
+                        range *rg = &m->match.range;
+                        len = rg->end - rg->start;
+                        for(int i = 0 ; i <= len ; i++)
+                                r->states[rg->start + i] = s;
+                        break;
+                case MATCH_ANY:
+                        // handled as default set above
+                case MATCH_VIRTUAL:
+                        // r->id == -1 so exit at top of fn
+                }
+
+                ml = ml->next;
+        }
+}
+
+void render_state(state states)
 {
         // Over all rules
         //
@@ -620,7 +678,7 @@ void render_states(state states, char *file_prefix)
         // to result of action
         //
         // Determining result of action:
-        //
+        //vi ge
         // if rule action then set state to rule state
         //
         // if builtin then:
@@ -628,7 +686,7 @@ void render_states(state states, char *file_prefix)
         //      all empty fns atm, then we can determine what they should be
         //    and then set the next state
         //    if/ifn options, next state will not be known
-        //    until runntime, must be set in code
+        //    until runtime, must be set in code
         //
         // if action list then as above because
         // at some point there will be a builtin, possibly multiple,
@@ -638,19 +696,85 @@ void render_states(state states, char *file_prefix)
         // automated or done by me?
         //
         // Sound jolly complicated to me :(
+        
+        FILE *array_file = fopen("state_array.c", "w");
+        if(!array_file) {
+                perror("Failed to create state_array,c");
+                exit(1);
+        }
+        FILE *code_file = fopen("state_code.c", "w");
+        if(!code_file) {
+                perror("Failed to create state_code.c");
+                exit(1);
+        }
 
-        (void)states;
-        (void)file_prefix;
+        rule_list rl = states->rules;
+        while(rl) {
+                render_rule(rl->this);
+                rl = rl->next;
+        }
+}
+
+void dump_match(match m)
+{
+        switch(m->type) {
+        case MATCH_CLASS:
+                printf("Match class %s\n", m->match.class_name);
+                break;
+        case MATCH_CHAR:
+                uint8_t c = m->match.character;
+                if(c < 0x20)
+                        printf("Match char 0x%2X\n", c);
+                else
+                        printf("March char '%c'\n", c);
+                break;
+        case MATCH_RANGE:
+                range *r = &m->match.range;
+                printf("Match range 0x%2X-0x%2X\n", r->start, r->end);
+                break;
+        case MATCH_ANY:
+                printf("Match any\n");
+                break;
+        case MATCH_VIRTUAL:
+                printf("Match virtual\n");
+        }
+                
+}
+
+void dump_matches(match_list ml)
+{
+        while(ml) {
+                dump_match(ml->this);
+                ml = ml->next;
+        }
+}
+
+void dump_rule(rule r)
+{
+        printf("Rule: %s [%d]\n", r->name, (unsigned)r->id);
+        dump_matches(r->matches);
+        printf("\n");
+}
+
+void dump_state(state states) {
+        rule_list rl = states->rules;
+        while(rl) {
+                dump_rule(rl->this);
+                rl = rl->next;
+        }
 }
 
 int main(int argc, char *argv[])
 {
-        if(argc != 3) {
-                printf("Usage: state <json file> <output file prefix>\n");
+        if((argc != 2 && argc != 3) 
+                        || (argc == 3 && 0 != strcmp("-d", argv[1]))) {
+                printf("Usage: state [-d] <json file>");
                 exit(1);
         }
+
+        int dump = (argc == 3);
         
-        FILE *stream = fopen(argv[1], "rb");
+        FILE *stream = fopen(argv[argc - 1], "rb");
         if(!stream) {
                 perror("Failed to open input");
                 exit(1);
@@ -662,8 +786,11 @@ int main(int argc, char *argv[])
                 type = jsonn_parse_next(p);
                 if(JSONN_BEGIN_OBJECT == type) {
                         state s = parse_state(p);
-                        if(validate_states(s))
-                                render_states(s, argv[2]);
+                        if(validate_states(s)) 
+                                if(dump)
+                                        dump_state(s);
+                                else    
+                                        render_state(s);
                         else
                                 printf("Invalid states\n");
                 } else {

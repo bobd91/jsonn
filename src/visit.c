@@ -13,10 +13,13 @@ static jsonn_visitor jsonn_visitor_new(jsonn_callbacks *callbacks, size_t ctx_si
         return v;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 static void jsonn_visitor_free(jsonn_visitor v)
 {
         jsonn_dealloc(v);
 }
+#pragma GCC diagnostic pop
 
 static int jsonn_null(jsonn_visitor v)
 {
