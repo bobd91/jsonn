@@ -17,9 +17,13 @@ typedef struct class_list_s *class_list;
 typedef struct rule_list_s *rule_list;
 typedef struct match_list_s *match_list;
 typedef struct action_list_s *action_list;
-typedef struct action_renderer_s *action_renderer;
+typedef struct action_builder_s *action_builder;
 
 #define MAX_CHARS_IN_CLASS 22
+
+
+#define render(X, Y)   (str_buf_append_chars(X, Y))
+#define render_c(X, Y)  (str_buf_append(X, (uint8_t *)&Y, 1))
 
 struct state_s {
         class_list classes;
@@ -39,6 +43,7 @@ struct rule_s {
 };
 
 typedef enum {
+        MATCH_CLASS_NAME,
         MATCH_CLASS,
         MATCH_CHAR,
         MATCH_RANGE,
@@ -60,12 +65,13 @@ struct match_s {
                 range range;
         } match;
         action action;
-        action_renderer renderer;
+        uint8_t id;
 };
 
 typedef enum {
         ACTION_LIST,
         ACTION_COMMAND,
+        ACTION_RULE_NAME,
         ACTION_RULE
 } action_type;
 
@@ -104,13 +110,15 @@ struct action_list_s {
         action_list next;
 };
 
-struct action_renderer_s {
+struct action_builder_s {
         uint8_t id;
         str_buf sbuf;
 };
 
 static uint8_t gen_rule_id = 0;
-static uint8_t gen_renderer_id = 0x80;
+static uint8_t gen_action_id = 0x80;
+static char *gen_hex_chars = "0123456789ABCDEF";
+
 
 void warn(char *fmt, ...)
 {
@@ -237,7 +245,7 @@ action parse_action(jsonn_parser p)
         jsonn_type type = jsonn_parse_next(p);
         switch(type) {
         case JSONN_STRING:
-                act->type = ACTION_RULE;
+                act->type = ACTION_RULE_NAME;
                 act->action.rule_name = result_str(p);
                 break;
         case JSONN_BEGIN_OBJECT:
@@ -280,6 +288,7 @@ match parse_match(jsonn_parser p)
 
         char *chars = result_str(p);
         match m = fmalloc(sizeof(struct match_s));
+        m->id = 0;
         int n = strlen(chars);
         switch(n) {
         case 0:
@@ -291,7 +300,7 @@ match parse_match(jsonn_parser p)
                 break;
         case 9:
                 unsigned int r1, r2;
-                if(2 == sscanf(chars, "0x%2X-0x%2X", &r1, &r2)) {
+                if(2 == sscanf(chars, "0x%02X-0x%02X", &r1, &r2)) {
                         if(r1 >= r2)
                                 fail("Invalid range: %s", chars);
                         m->type = MATCH_RANGE;
@@ -302,12 +311,10 @@ match parse_match(jsonn_parser p)
                 // fallthrough
         default:
                 if('$' == *chars) {
-                        m->type = MATCH_CLASS;
+                        m->type = MATCH_CLASS_NAME;
                         m->match.class_name = chars + 1;
                         break;
-                }
-
-                if(0 == strcmp("...", chars)) {
+                } else if(0 == strcmp("...", chars)) {
                         m->type = MATCH_ANY;
                         break;
                 } else if(0 == strcmp("???", chars)) {
@@ -419,8 +426,9 @@ rule find_rule(state states, char *name)
 {
         rule_list rl = states->rules;
         while(rl) {
-                if(0 == strcmp(name, rl->this->name))
+                if(0 == strcmp(name, rl->this->name)) {
                         return rl->this;
+                }
                 rl = rl->next;
         }
         return NULL;
@@ -440,14 +448,18 @@ int validate_action(state states, action a)
         case ACTION_COMMAND:
                 // validated at parse time
                 break;
-        case ACTION_RULE:
+        case ACTION_RULE_NAME:
                 char *name = a->action.rule_name;
-                a->action.rule = find_rule(states, name);
-                if(!a->action.rule) {
+                rule r = find_rule(states, name);
+                if(!r) {
                         warn("Cannot find rule %s", name);
                         res = 0;
                 }
+                a->type = ACTION_RULE;
+                a->action.rule = r;
                 break;
+        case ACTION_RULE:
+                // will only exist post validation
         }
         return res;
 }
@@ -455,15 +467,17 @@ int validate_action(state states, action a)
 int validate_match(state states, match m)
 {
         int res = 1;
-        if(m->type == MATCH_CLASS && !m->match.class) {
+        if(m->type == MATCH_CLASS_NAME) {
                 char *name = m->match.class_name;
-                m->match.class = find_class(states, name);
-                if(!m->match.class) {
+                class c = find_class(states, name);
+                if(!c) {
                         warn("Cannot find class %s", name);
                         res = 0;
                 }
-                res &= validate_action(states, m->action);
+                m->type = MATCH_CLASS;
+                m->match.class = c;
         }
+        res &= validate_action(states, m->action);
         return res;
 }
                 
@@ -513,231 +527,67 @@ state parse_state(jsonn_parser p)
         return states;
 }
 
-void render(action_renderer r, char *str)
+void dump_command(builtin command)
 {
-        str_buf_append_chars(r->sbuf, str);
+        printf("  Command: %s\n", command->name);
+        printf("           %s\n", command->arg);
 }
 
-void render_command(action_renderer r, builtin command)
+void dump_action_rule(rule r)
 {
-        int is_if =  (0 == strncmp("if", command->name, 2));
-        if(is_if)
-                render(r, "if(");
-        render(r, command->name);
-        if(strlen(command->arg))
-                render(r, "-");
-        render(r, command->arg);
-        render(r, "()");
-        if(is_if)
-                render(r, ")\n");
-        else
-                render(r, ";\n");
+        printf("  Action Rule: %s\n", r->name);
 }
 
-void render_rule_state_name(action_renderer r, char *state)
-{
-        render(r, "state_");
-        render(r, state);
-}
-
-void render_actions(action_renderer, action_list);
-
-void render_action(action_renderer ar, action a)
+void dump_action(action a)
 {
         switch(a->type) {
         case ACTION_LIST:
-                render_actions(ar, a->action.actions);
+                action_list al = a->action.actions;
+                while(al) {
+                        dump_action(al->this);
+                        al = al->next;
+                }
                 break;
         case ACTION_COMMAND:
-                render_command(ar, a->action.command);
+                dump_command(a->action.command);
                 break;
         case ACTION_RULE:
-                rule r = a->action.rule;
-                if(r->id < 0) {
-                       render_action(ar, r->matches->this->action);
-                } else {
-                        render_rule_state_name(ar, r->name);
-                }
-        }
-}
-
-void render_actions(action_renderer r, action_list al)
-{
-        while(al) {
-                render_action(r, al->this);
-                al = al->next;
-        }
-}
-
-action_renderer action_renderer_new()
-{
-        action_renderer r = fmalloc(sizeof(struct action_renderer_s));
-        r->id = gen_renderer_id++;
-        r->sbuf = str_buf_new();
-        return r;
-}
-
-uint8_t render_match_action(match m)
-{
-        action a = m->action;
-        uint8_t s = 0xFF; // error
-
-        switch(a->type) {
-        case ACTION_LIST:
-                m->renderer = action_renderer_new();
-                render_actions(m->renderer, a->action.actions);
-                s = m->renderer->id;
+                dump_action_rule(a->action.rule);
                 break;
-        case ACTION_COMMAND:
-                m->renderer = action_renderer_new();
-                render_command(m->renderer, a->action.command);
-                s = m->renderer->id;
-                break;
-        case ACTION_RULE:
-                rule r = a->action.rule;
-                if(r->id < 0) {
-                       s = render_match_action(r->matches->this);
-                } else {
-                        s = r->id;
-                }
+        case ACTION_RULE_NAME:
+                fail("Rule %s not validated", a->action.rule_name);
         }
 
-        return s;
-}
-
-uint8_t rule_default_state(rule r)
-{
-        match_list ml = r->matches;
-        while(ml) {
-                match m = ml->this;
-                if(m->type == MATCH_ANY) {
-                        return render_match_action(m);
-                        break;
-                }
-                ml = ml->next;
-        }
-
-        return -1; //state_error;
-}
-
-void render_rule(rule r) 
-{
-        if(r->id < 0)
-                return;
-
-        match_list ml = r->matches;
-
-        memset(r->states, rule_default_state(r), 256);
-        while(ml) {
-                int len;
-                match m = ml->this;
-                uint8_t s = render_match_action(m);
-                switch(m->type) {
-                case MATCH_CLASS:
-                        uint8_t *chars = m->match.class->chars;
-                        len = strlen((char *)chars);
-                        for(int i = 0 ; i < len ; i++)
-                                r->states[chars[i]] = s;
-                        break;
-                case MATCH_CHAR:
-                        r->states[m->match.character] = s;
-                        break;
-                case MATCH_RANGE:
-                        range *rg = &m->match.range;
-                        len = rg->end - rg->start;
-                        for(int i = 0 ; i <= len ; i++)
-                                r->states[rg->start + i] = s;
-                        break;
-                case MATCH_ANY:
-                        // handled as default set above
-                case MATCH_VIRTUAL:
-                        // r->id == -1 so exit at top of fn
-                }
-
-                ml = ml->next;
-        }
-}
-
-void render_state(state states)
-{
-        // Over all rules
-        //
-        // whitespace rule => state 0
-        //
-        // token rules, follow whitespace and a note
-        // made of max state so it can be tested at runtime
-        // to call whitespace until "next_token" builtin allows
-        // the requested state transition.
-        //
-        // Determine default state for non_matches
-        //   -1 = error
-        //   ... = result of action
-        //   ??? = 0x40 | result of action (don't consume)
-        //
-        // Set state for each match character (class, char, range)
-        // to result of action
-        //
-        // Determining result of action:
-        //vi ge
-        // if rule action then set state to rule state
-        //
-        // if builtin then:
-        //    call required function:
-        //      all empty fns atm, then we can determine what they should be
-        //    and then set the next state
-        //    if/ifn options, next state will not be known
-        //    until runtime, must be set in code
-        //
-        // if action list then as above because
-        // at some point there will be a builtin, possibly multiple,
-        // called until a state can be derived
-        //
-        // Make sure #defines are also set in code
-        // automated or done by me?
-        //
-        // Sound jolly complicated to me :(
-        
-        FILE *array_file = fopen("state_array.c", "w");
-        if(!array_file) {
-                perror("Failed to create state_array,c");
-                exit(1);
-        }
-        FILE *code_file = fopen("state_code.c", "w");
-        if(!code_file) {
-                perror("Failed to create state_code.c");
-                exit(1);
-        }
-
-        rule_list rl = states->rules;
-        while(rl) {
-                render_rule(rl->this);
-                rl = rl->next;
-        }
 }
 
 void dump_match(match m)
 {
         switch(m->type) {
         case MATCH_CLASS:
-                printf("Match class %s\n", m->match.class_name);
+                printf(" Match class %s\n", m->match.class->name);
                 break;
         case MATCH_CHAR:
                 uint8_t c = m->match.character;
                 if(c < 0x20)
-                        printf("Match char 0x%2X\n", c);
+                        printf(" Match char 0x%02X\n", (int)c);
                 else
-                        printf("March char '%c'\n", c);
+                        printf(" Match char '%c'\n", (int)c);
                 break;
         case MATCH_RANGE:
                 range *r = &m->match.range;
-                printf("Match range 0x%2X-0x%2X\n", r->start, r->end);
+                printf(" Match range 0x%02X-0x%02X\n", r->start, r->end);
                 break;
         case MATCH_ANY:
-                printf("Match any\n");
+                printf( "Match any\n");
                 break;
         case MATCH_VIRTUAL:
-                printf("Match virtual\n");
+                printf(" Match virtual\n");
+                break;
+        case MATCH_CLASS_NAME:
+                fail("Class %s not validated", m->match.class_name);
         }
+
+        dump_action(m->action);
                 
 }
 
@@ -756,12 +606,321 @@ void dump_rule(rule r)
         printf("\n");
 }
 
+void dump_class(class c)
+{
+        printf("Class: %s\n", c->name);
+        uint8_t *chars = c->chars;
+        int len = strlen((char *)chars);
+        int first = 1;
+        for(int i = 0 ; i < len ; i++) {
+                if(first) {
+                        printf("Chars: ");
+                        first = 0;
+                } else {
+                        printf(", ");
+                }
+                if(chars[i] < 0x20)
+                        printf("0x%02X", (int)chars[i]);
+                else
+                        printf("'%c'", (int)chars[i]);
+        }
+        printf("\n\n");
+}
+
 void dump_state(state states) {
+        class_list cl = states->classes;
+        while(cl) {
+                dump_class(cl->this);
+                cl = cl->next;
+        }
         rule_list rl = states->rules;
         while(rl) {
                 dump_rule(rl->this);
                 rl = rl->next;
         }
+}
+
+void write_str_buf(str_buf sbuf, char *filename)
+{
+        FILE *f = fopen(filename, "w");
+        if(!f)
+                fail("Unable to create %s", filename);
+
+        uint8_t *str;
+        int len = str_buf_content(sbuf, &str);
+        fprintf(f, "%.*s\n", len, (char *)str);
+
+        fclose(f);
+}
+
+void render_x(str_buf sbuf, uint8_t x)
+{
+        render(sbuf, "0x");
+        render_c(sbuf, gen_hex_chars[x >> 4]);
+        render_c(sbuf, gen_hex_chars[x & 0xF]);
+}        
+
+void render_enum(rule r, str_buf enums, int first) 
+{
+        if(r->id < 0)
+                // will miss first processing if first entry
+                // if virtual, which it isn't at the moment (phew)
+                return;
+
+        if(!first)
+                render(enums, ",");
+        render(enums, "\n        state_");
+        render(enums, r->name);
+}
+
+void render_map_values(rule r, uint8_t *bytes, str_buf map, int first_map)
+{
+        if(r->id < 0)
+                return;
+
+        int first = 1;
+        if(!first_map)
+                render(map, ", ");
+        render(map, "\n{");
+        for(int i = 0 ; i < 256 ; i++) {
+                if(!first)
+                        render(map, ", ");
+                first = 0;
+                render_x(map, bytes[i]);
+        }
+        render(map, "}");
+}
+        
+void render_command(builtin command, str_buf code)
+{
+        int is_if =  (0 == strncmp("if", command->name, 2));
+        if(is_if)
+                render(code, "if(");
+        render(code, command->name);
+        if(strlen(command->arg))
+                render(code, "_");
+        render(code, command->arg);
+        render(code, "()");
+        if(is_if)
+                render(code, ")\n");
+        else
+                render(code, ";\n");
+}
+
+void render_rule_action(rule r, str_buf code)
+{
+        render(code, "return state_");
+        render(code, r->name);
+        render(code, ";\n");
+}
+
+void render_actions(action_list, str_buf);
+
+void render_action(action a, str_buf code)
+{
+        switch(a->type) {
+        case ACTION_LIST:
+                render_actions(a->action.actions, code);
+                break;
+        case ACTION_COMMAND:
+                render_command(a->action.command, code);
+                break;
+        case ACTION_RULE:
+                rule r = a->action.rule;
+                if(r->id < 0) {
+                       render_action(r->matches->this->action, code);
+                } else {
+                        render_rule_action(r, code);
+                }
+                break;
+        case ACTION_RULE_NAME:
+                fail("Rule %s not validated", a->action.rule_name);
+        }
+}
+
+void render_actions(action_list al, str_buf code)
+{
+        render(code, "{\n");
+        while(al) {
+                render_action(al->this, code);
+                al = al->next;
+        }
+        render(code, "}\n");
+}
+
+
+void render_code(rule r, str_buf code)
+{
+        match_list ml = r->matches;
+        while(ml) {
+                match m = ml->this;
+                render_action(m->action, code);
+                ml = ml->next;
+        }
+}
+
+uint8_t render_new_action(str_buf code)
+{
+        uint8_t s = gen_action_id++;
+        render(code, "case ");
+        render_x(code, s);
+        render(code, ":\n");
+        return s;
+}
+
+void render_action_comment(rule r, match m, str_buf code)
+{
+        render(code, "// ");
+        render(code, r->name);
+        render(code, "/");
+        switch(m->type) {
+        case MATCH_CLASS:
+                render(code, "$");
+                render(code, m->match.class->name);
+                break;
+        case MATCH_CHAR:
+                render(code, "'");
+                render_c(code, m->match.character);
+                render(code, "'");
+                break;
+        case MATCH_RANGE:
+                render_x(code, m->match.range.start);
+                render(code, "-");
+                render_x(code, m->match.range.end);
+                break;
+        case MATCH_ANY:
+                render(code, "...");
+                break;
+        case MATCH_VIRTUAL:
+                render(code, "???");
+                break;
+        case MATCH_CLASS_NAME:
+                fail("Class %s not resolved", m->match.class_name);
+
+        }
+        render(code, "\n");
+}
+
+uint8_t render_match_action(rule r, match m, str_buf code)
+{
+        if(m->id)
+                return m->id;
+
+        action a = m->action;
+        switch(a->type) {
+        case ACTION_LIST:
+                m->id = render_new_action(code);
+                render_action_comment(r, m, code);
+                render_actions(a->action.actions, code);
+                render(code, "break;\n");
+                break;
+        case ACTION_COMMAND:
+                m->id = render_new_action(code);
+                render_action_comment(r, m, code);
+                render_command(a->action.command, code);
+                render(code, "break;\n");
+                break;
+        case ACTION_RULE:
+                rule ar = a->action.rule;
+                if(ar->id < 0) {
+                        render_action_comment(r, m, code);
+                        m->id = render_match_action(ar, ar->matches->this, code);
+                } else {
+                        m->id = ar->id;
+                }
+                break;
+        case ACTION_RULE_NAME:
+                fail("Rule %s not validated", a->action.rule_name);
+        }
+
+
+        return m->id;
+}
+
+uint8_t render_rule_default_state(rule r, str_buf code)
+{
+        match_list ml = r->matches;
+        while(ml) {
+                match m = ml->this;
+                if(m->type == MATCH_ANY || m->type == MATCH_VIRTUAL) {
+                        return render_match_action(r, m, code);
+                        break;
+                }
+                ml = ml->next;
+        }
+
+        return -1; //state_error;
+}
+
+
+
+
+
+void render_rule(rule r, str_buf enums, str_buf map, str_buf code, int first)
+{
+        static uint8_t rule_states[256];
+
+        render_enum(r, enums, first);
+        match_list ml = r->matches;
+        uint8_t def_state = render_rule_default_state(r, code);
+        memset(rule_states, def_state, 256);
+
+        while(ml) {
+                int len;
+                match m = ml->this;
+                uint8_t match_state = render_match_action(r, m, code);
+                switch(m->type) {
+                case MATCH_CLASS:
+                        uint8_t *chars = m->match.class->chars;
+                        len = strlen((char *)chars);
+                        for(int i = 0 ; i < len ; i++)
+                                rule_states[chars[i]] = match_state;
+                        break;
+                case MATCH_CHAR:
+                        rule_states[m->match.character] = match_state;
+                        break;
+                case MATCH_RANGE:
+                        range *rg = &m->match.range;
+                        len = rg->end - rg->start;
+                        for(int i = 0 ; i <= len ; i++)
+                                rule_states[rg->start + i] = match_state;
+                        break;
+                case MATCH_CLASS_NAME:
+                        // validation will have changed this to CLASS or failed
+                case MATCH_ANY:
+                        // handled as default set above
+                case MATCH_VIRTUAL:
+                        // r->id == -1 so exit at top of fn
+                }
+                ml = ml->next;
+        }
+        render_map_values(r, rule_states, map, first);
+}
+
+
+void render_state(state states)
+{
+        rule_list rl = states->rules;
+        str_buf enums = str_buf_new();
+        str_buf map = str_buf_new();
+        str_buf code = str_buf_new();
+
+        render(enums, "typdef enum {");
+        render(map, "uint8_t state_map[][256] = {");
+        
+        int first = 1;
+        while(rl) {
+                render_rule(rl->this, enums, map, code, first);
+                first = 0;
+                rl = rl->next;
+        }
+
+        render(enums, "\n} state;\n");
+        render(map, "\n};\n");
+
+        write_str_buf(enums, "state_enums.c");
+        write_str_buf(map, "state_map.c");
+        write_str_buf(code, "state_code.c");
 }
 
 int main(int argc, char *argv[])
@@ -786,13 +945,15 @@ int main(int argc, char *argv[])
                 type = jsonn_parse_next(p);
                 if(JSONN_BEGIN_OBJECT == type) {
                         state s = parse_state(p);
-                        if(validate_states(s)) 
-                                if(dump)
+                        if(validate_states(s)) {
+                                if(dump) {
                                         dump_state(s);
-                                else    
+                                } else {
                                         render_state(s);
-                        else
+                                }
+                        } else {
                                 printf("Invalid states\n");
+                        }
                 } else {
                         printf("Expecting begin object, got: %d\n", type);
                         exit(1);

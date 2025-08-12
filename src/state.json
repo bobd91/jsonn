@@ -1,5 +1,6 @@
 {
 "$whitespace": ["\t", "\n", "\r", " "],
+"$newline": ["\n", "\r"],
 "$0-9": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
 "$1-9": ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
 "$hex_digit": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
@@ -86,8 +87,7 @@
 },
 
 "w_after_value": {
-        ",": [[{"ifconfig": "trailing_commas"}, "value_or_close"], 
-                "after_separator"],
+        ",": [{"ifconfig": "trailing_commas"}, "value_or_close", "after_separator"],
         "}": [{"ifpop": "object"}, "after_value"],
         "]": [{"ifpop": "array"}, "after_value"],
         "???": [{"ifconfig": "optional_commas"}, "after_separator"]
@@ -167,22 +167,22 @@
 
 
 "string": {
-        "\\": [ {"push": "escape"}, 
-                [{"ifconfig": "escape_characters"}, "escape_chars"], 
-                "escape" ],
-        "\"": [ [{"ifpop": "double_quote"}, 
-                        [{"ifpop": "key"}, "after_key"], 
-                        [{"ifpop": "string"}, "after_value"]],
-                 "string"],
-        "'": [ [{"ifpop": "single_quote"}, 
-                        [{"ifpop": "key"}, "after_key"], 
-                        [{"ifpop": "string"}, "after_value"]],
-                "string"],
-        " ": [  [ {"ifconfig": "unquoted_keys"},
-                        [{"ifpop": "key"}, "after_key"]],
-                [ {"ifconfig": "unquoted_strings"},
-                        [{"ifpop": "string"}, "after_value"]],
-                "string" ],
+        "\\": [{"push": "escape"}, 
+                [{"ifconfig": "escape_characters"}, "escape_chars", "escape" ]
+        ],
+        "\"": [{"ifpop": "double_quote"}, 
+                        [{"ifpop": "key"}, "after_key", 
+                                [{"ifpop": "string"}, "after_value"]],
+                        "string"],
+        "'": [{"ifpop": "single_quote"}, 
+                        [{"ifpop": "key"}, "after_key", 
+                                [{"ifpop": "string"}, "after_value"]],
+                        "string"],
+        " ": [{"ifconfig": "unquoted_keys"},
+                        [{"ifpop": "key"}, "after_key"],
+                                [{"ifconfig": "unquoted_strings"},
+                                        [{"ifpop": "string"}, "after_value"],
+                                        "string"]],
         "0x21-0x7F": "string",
         "0xC0-0xDF": [ {"push": "utf8"}, "continuation_1"],
         "0xE0-0xEF": [ {"push": "utf8"}, "continuation_2"],
