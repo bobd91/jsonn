@@ -124,6 +124,9 @@
 "false_5": { "e": [{"pop": "false"}, "after_value"] },
 
 
+"after_number": {
+        "???": [{"pop": "number"}, "after_value"]
+},
 
 "minus": {
         "0": "zero_number",
@@ -133,20 +136,20 @@
 "zero_number": {
         ".": "fraction",
         "$exponent": "exponent_prefix",
-        "???": [{"pop": "number"}, "after_value"]
+        "???": "after_number"
 },
 
 "number": {
         "$0-9": "number",
         ".": "fraction",
         "$exponent": "exponent_prefix",
-        "???": [{"pop": "number"}, "after_value"]
+        "???": "after_number"
 },
 
 "fraction": {
         "$0-9": "fraction",
         "$exponent": "exponent_prefix",
-        "???": [{"pop": "number"}, "after_value"]
+        "???": "after_number"
 },
 
 "exponent_prefix": {
@@ -160,7 +163,7 @@
 
 "exponent": {
         "$0-9": "exponent",
-        "???": [{"pop": "number"}, "after_value"]
+        "???": "after_number"
 },
 
 
