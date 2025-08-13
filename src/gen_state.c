@@ -175,14 +175,14 @@ char *result_str(jsonn_parser p)
 void expect_type(jsonn_type t1, jsonn_type t2)
 {
         if(t1 != t2) {
-                fail("Expected type %d, got %d", t1, t2);
+                fail("Expected type %d, got %d", t2, t1);
         }
 }
 
 void expect_next(jsonn_type t, jsonn_parser p)
 {
-        jsonn_type t2 = jsonn_parse_next(p);
-        expect_type(t, t2);
+        jsonn_type t1 = jsonn_parse_next(p);
+        expect_type(t1, t);
 }
 
 void append_class(state states, class c)
@@ -797,10 +797,10 @@ void render_command(int is_virtual, builtin command, renderer code)
                         break;
                 case CMD_POP_STATE:
                         if(is_virtual)
-                                render_indent(code, "state = ");
+                                render_indent(code, "repeat");
                         else
-                                render_indent(code, "return ");
-                        render(code, "pop_state();");
+                                render_indent(code, "next");
+                        render(code, "_byte(pop_state());");
                         break;
                 case CMD_PUSH_STACK:
                         render_call("push_stack(stack_", arg, code);
@@ -827,7 +827,7 @@ void render_command(int is_virtual, builtin command, renderer code)
                         render_if("ifpeek_token(token_", arg, code);
                         // fallthrough
                 case CMD_POP_TOKEN:
-                        render_indent(code, "accept_");
+                        render_indent(code, "result = accept_");
                         render(code, arg);
                         render(code, "(pop_token());");
                         break;
@@ -837,12 +837,12 @@ void render_command(int is_virtual, builtin command, renderer code)
 void render_rule_match(int is_virtual, rule r, renderer code)
 {
         if(is_virtual)
-                render_indent(code, "state = ");
+                render_indent(code, "repeat");
         else
-                render_indent(code, "return ");
-        render(code, "state_");
+                render_indent(code, "next");
+        render(code, "_byte(state_");
         render(code, r->name);
-        render(code, ";");
+        render(code, ");");
 }
 
 void render_actions(int, action_list, renderer);
@@ -1085,14 +1085,23 @@ void render_state(state states)
         render(map, "uint8_t state_map[][256] = {");
         render_level(map, 1);
 
-        render(code, "gen_state gen_next_state(gen_state curr_state, uint8_t byte) {");
+        render(code, "jsonn_type jsonn_parse_next(jsonn_parser parser) {");
         render_level(code, 1);
-        render_indent(code, "gen_state state = curr_state;");
-        render_indent(code, "while(1) {");
+        render_indent(code, "uint8_t *current = parser->current;");
+        render_indent(code, "uint8_t *last = parser->last;");
+        render_indent(code, "state current_state = parser->state");
+        render_indent(code, "jsonn_type result = JSONN_EOB");
+        render_indent(code, "while(current < last) {");
         render_level(code, 1);
-        render_indent(code, "gen_state new_state = state_map[state][byte];");
-        render_indent(code, "if(new_state < 0x80) return new_state;");
-        render_indent(code, "state = 0xFF;");
+        render_indent(code, "state new_state = state_map[current_state][*current];");
+        render_indent(code, "if(new_state < 0x80) {");
+        render_level(code, 1);
+        render_indent(code, "current_state = new_state;");
+        render_indent(code, "current++;");
+        render_indent(code, "continue;");
+        render_level(code, -1);
+        render_indent(code, "}");
+        render_indent(code, "current_state = state_error;");
         render_indent(code, "switch(new_state) {");
 
         int first = 1;
@@ -1102,16 +1111,28 @@ void render_state(state states)
                 rl = rl->next;
         }
 
+        render(enums, ",");
+        render_indent(enums, "state_error = 0xFF");
         render_level(enums, -1);
-        render_indent(enums, "} gen_state;");
+        render_indent(enums, "} state;");
 
         render_level(map, -1);
         render_indent(map, "};");
 
         render_indent(code, "}");
-        render_indent(code, "if(state == 0xFF) return state;");
+        render_indent(code, "if(current_state == state_error)");
+        render_level(code, 1);
+        render_indent(code, "result = parse_error(parser);");
+        render_level(code, -1);
+        render_indent(code, "if(result != JSONN_EOB)");
+        render_level(code, 1);
+        render_indent(code, "break;");
+        render_level(code, -1);
         render_level(code, -1);
         render_indent(code, "}");
+        render_indent(code, "parser->state = current_state;");
+        render_indent(code, "parser->current = current;");
+        render_indent(code, "return result;");
         render_level(code, -1);
         render_indent(code, "}");
 
