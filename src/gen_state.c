@@ -36,7 +36,6 @@ struct rule_s {
         char *name;
         int id;
         match_list matches;
-        uint8_t states[256];
 };
 
 typedef enum {
@@ -88,22 +87,22 @@ struct builtin_s {
 };
 
 struct class_list_s {
-        class this;
+        class class;
         class_list next;
 };
 
 struct rule_list_s {
-        rule this;
+        rule rule;
         rule_list next;
 };
 
 struct match_list_s {
-        match this;
+        match match;
         match_list next;
 };
 
 struct action_list_s {
-        action this;
+        action action;
         action_list next;
 };
 
@@ -123,6 +122,7 @@ typedef enum {
         CMD_IFN_PEEK_TOKEN,
         CMD_IF_POP_TOKEN,
         CMD_POP_TOKEN,
+        CMD_POPX_TOKEN,
         CMD_IF_CONFIG
 } command_type;
 
@@ -130,6 +130,11 @@ static uint8_t gen_rule_id = 0;
 static uint8_t gen_action_id = 0x80;
 static char *gen_hex_chars = "0123456789ABCDEF";
 
+
+int str_equal(char *s1, char *s2)
+{
+        return 0 == strcmp(s1, s2);
+}
 
 void warn(char *fmt, ...)
 {
@@ -174,9 +179,8 @@ char *result_str(jsonn_parser p)
 
 void expect_type(jsonn_type t1, jsonn_type t2)
 {
-        if(t1 != t2) {
+        if(t1 != t2)
                 fail("Expected type %d, got %d", t2, t1);
-        }
 }
 
 void expect_next(jsonn_type t, jsonn_parser p)
@@ -188,7 +192,7 @@ void expect_next(jsonn_type t, jsonn_parser p)
 void append_class(state states, class c)
 {
         class_list cl = fmalloc(sizeof(struct class_list_s));
-        cl->this = c;
+        cl->class = c;
         cl->next = NULL;
 
         if(!states->classes) {
@@ -199,7 +203,7 @@ void append_class(state states, class c)
         class_list next = states->classes;
         class_list last = next;
         while(next) {
-                if(0 == strcmp(next->this->name, c->name))
+                if(str_equal(next->class->name, c->name))
                         fail("Duplicate class name: %s", c->name);
                 last = next;
                 next = next->next;
@@ -210,7 +214,7 @@ void append_class(state states, class c)
 void append_rule(state states, rule r)
 {
         rule_list rl = fmalloc(sizeof(struct rule_list_s));
-        rl->this = r;
+        rl->rule = r;
         rl->next = NULL;
 
         if(!states->rules) {
@@ -221,7 +225,7 @@ void append_rule(state states, rule r)
         rule_list next = states->rules;
         rule_list last = next;
         while(next) {
-                if(0 == strcmp(next->this->name, r->name))
+                if(str_equal(next->rule->name, r->name))
                         fail("Duplicate rule name: %s", r->name);
                 last = next;
                 next = next->next;
@@ -283,7 +287,7 @@ action_list parse_action_list(jsonn_parser p)
                 current = fmalloc(sizeof(struct action_list_s));
                 if(!head)
                         head = current;
-                current->this = act;
+                current->action = act;
                 if(prev)
                         prev->next = current;
                 prev = current;
@@ -299,42 +303,45 @@ match parse_match(jsonn_parser p)
 
         char *chars = result_str(p);
         match m = fmalloc(sizeof(struct match_s));
+        m->type = -1;
         m->id = 0;
         int n = strlen(chars);
+        unsigned r1, r2;
         switch(n) {
-                case 0:
-                        fail("Rule match cannot be empty");
-                        // never get here
-                case 1:
+        case 0:
+                fail("Rule match cannot be empty");
+                // never get here
+        case 1:
+                m->type = MATCH_CHAR;
+                m->match.character = *chars;
+                break;
+        case 4:
+                if(1 == sscanf(chars, "0x%02X", &r1)) {
                         m->type = MATCH_CHAR;
-                        m->match.character = *chars;
-                        break;
-                case 9:
-                        unsigned int r1, r2;
-                        if(2 == sscanf(chars, "0x%02X-0x%02X", &r1, &r2)) {
-                                if(r1 >= r2)
-                                        fail("Invalid range: %s", chars);
-                                m->type = MATCH_RANGE;
-                                m->match.range.start = r1;
-                                m->match.range.end = r2;
-                                break;
-                        }
-                        // fallthrough
-                default:
-                        if('$' == *chars) {
-                                m->type = MATCH_CLASS_NAME;
-                                m->match.class_name = chars + 1;
-                                break;
-                        } else if(0 == strcmp("...", chars)) {
-                                m->type = MATCH_ANY;
-                                break;
-                        } else if(0 == strcmp("???", chars)) {
-                                m->type = MATCH_VIRTUAL;
-                                break;
-                        }
-
+                        m->match.character = (uint8_t)r1;
+                }
+                break;
+        case 9:
+                if(2 == sscanf(chars, "0x%02X-0x%02X", &r1, &r2)) {
+                        if(r1 >= r2)
+                                fail("Invalid range: %s", chars);
+                        m->type = MATCH_RANGE;
+                        m->match.range.start = r1;
+                        m->match.range.end = r2;
+                }
+                break;
+        } 
+        if(m->type == -1) {
+                if('$' == *chars) {
+                        m->type = MATCH_CLASS_NAME;
+                        m->match.class_name = chars + 1;
+                } else if(str_equal("...", chars)) {
+                        m->type = MATCH_ANY;
+                } else if(str_equal("???", chars)) {
+                        m->type = MATCH_VIRTUAL;
+                } else {
                         fail("Invalid match specification: %s", chars);
-
+                }
         }
         m->action = parse_action(p);
         return m;
@@ -352,7 +359,7 @@ match_list parse_match_list(jsonn_parser p) {
                 current = fmalloc(sizeof(struct match_list_s));
                 if(!head)
                         head = current;
-                current->this = m;
+                current->match = m;
                 if(prev)
                         prev->next = current;
                 prev = current;
@@ -399,7 +406,7 @@ void add_class(state states, char *name, jsonn_parser p)
 int rule_is_virtual(rule r)
 {
         // rule with single "???" match clause
-        return r->matches->this->type == MATCH_VIRTUAL
+        return r->matches->match->type == MATCH_VIRTUAL
                 && !(r->matches->next);
 }
 
@@ -426,8 +433,8 @@ class find_class(state states, char *name)
 {
         class_list cl = states->classes;
         while(cl) {
-                if(0 == strcmp(name, cl->this->name))
-                        return cl->this;
+                if(str_equal(name, cl->class->name))
+                        return cl->class;
                 cl = cl->next;
         }
         return NULL;
@@ -437,8 +444,8 @@ rule find_rule(state states, char *name)
 {
         rule_list rl = states->rules;
         while(rl) {
-                if(0 == strcmp(name, rl->this->name)) {
-                        return rl->this;
+                if(str_equal(name, rl->rule->name)) {
+                        return rl->rule;
                 }
                 rl = rl->next;
         }
@@ -452,7 +459,7 @@ int validate_action(state states, action a)
                 case ACTION_LIST:
                         action_list al = a->action.actions;
                         while(al) {
-                                res &= validate_action(states, al->this);
+                                res &= validate_action(states, al->action);
                                 al = al->next;
                         }
                         break;
@@ -497,7 +504,7 @@ int validate_rule(state states, rule r)
         int res = 1;
         match_list ml = r->matches;
         while(ml) {
-                res &= validate_match(states, ml->this);
+                res &= validate_match(states, ml->match);
                 ml = ml->next;
         }
         return res;
@@ -508,7 +515,7 @@ int validate_states(state states)
         int res = 1;
         rule_list rl = states->rules;
         while(rl) {
-                res &= validate_rule(states, rl->this);
+                res &= validate_rule(states, rl->rule);
                 rl = rl->next;
         }
         return res;
@@ -524,10 +531,6 @@ state parse_state(jsonn_parser p)
                 char *key = result_str(p);
                 if('$' == *key) {
                         add_class(states, key + 1, p);
-                } else if('_' == *key) {
-                        add_rule(states, key + 1, p);
-                } else if('*' == *key) {
-                        add_rule(states, key + 1, p);
                 } else {
                         add_rule(states, key, p);
                 }
@@ -555,7 +558,7 @@ void dump_action(action a)
                 case ACTION_LIST:
                         action_list al = a->action.actions;
                         while(al) {
-                                dump_action(al->this);
+                                dump_action(al->action);
                                 al = al->next;
                         }
                         break;
@@ -605,7 +608,7 @@ void dump_match(match m)
 void dump_matches(match_list ml)
 {
         while(ml) {
-                dump_match(ml->this);
+                dump_match(ml->match);
                 ml = ml->next;
         }
 }
@@ -641,12 +644,12 @@ void dump_class(class c)
 void dump_state(state states) {
         class_list cl = states->classes;
         while(cl) {
-                dump_class(cl->this);
+                dump_class(cl->class);
                 cl = cl->next;
         }
         rule_list rl = states->rules;
         while(rl) {
-                dump_rule(rl->this);
+                dump_rule(rl->rule);
                 rl = rl->next;
         }
 }
@@ -675,11 +678,11 @@ void render_level(renderer r, int inc)
         r->level += inc;
 }
 
-void write_renderer(renderer r, FILE *stream)
+void write_renderer(FILE *stream, renderer r)
 {
         uint8_t *str;
         int len = str_buf_content(r->sbuf, &str);
-        fprintf(stream, "%.*s\n", len, (char *)str);
+        fprintf(stream, "%.*s", len, (char *)str);
 }
 
 void render_x(renderer r, uint8_t x)
@@ -692,8 +695,8 @@ void render_x(renderer r, uint8_t x)
 void render_enum(rule r, renderer enums, int first) 
 {
         if(r->id < 0)
-                // will miss first processing if first entry
-                // if virtual, which it isn't at the moment (phew)
+                // will miss first processing if first entry is virtual,
+                // which it isn't at the moment (phew)
                 return;
 
         if(!first)
@@ -741,14 +744,9 @@ void render_if(char *prefix, char *arg, renderer code)
         render_level(code, 1);
 }
 
-int is_str(char *s1, char *s2)
-{
-        return 0 == strcmp(s1, s2);
-}
-
 int is_stack_arg(char *arg)
 {
-        return is_str(arg, "object") || is_str(arg, "array");
+        return str_equal(arg, "object") || str_equal(arg, "array");
 }
 
 command_type determine_command_type(builtin command)
@@ -757,29 +755,31 @@ command_type determine_command_type(builtin command)
         char *arg = command->arg;
 
         if(is_stack_arg(arg)) {
-                if(is_str(name, "push"))
+                if(str_equal(name, "push"))
                         return CMD_PUSH_STACK;
-                else if(is_str(name, "ifpop"))
+                else if(str_equal(name, "ifpop"))
                         return CMD_IF_POP_STACK;
-                else if(is_str(name, "ifpeek"))
+                else if(str_equal(name, "ifpeek"))
                         return CMD_IF_PEEK_STACK;
         }
 
-        if(is_str(name, "popstate"))
+        if(str_equal(name, "popstate"))
                 return CMD_POP_STATE;
-        if(is_str(name, "pushstate"))
+        if(str_equal(name, "pushstate"))
                 return CMD_PUSH_STATE;
-        if(is_str(name, "push"))
+        if(str_equal(name, "push"))
                 return CMD_PUSH_TOKEN;
-        if(is_str(name, "ifpeek"))
+        if(str_equal(name, "ifpeek"))
                 return CMD_IF_PEEK_TOKEN;
-        if(is_str(name, "ifnpeek"))
+        if(str_equal(name, "ifnpeek"))
                 return CMD_IFN_PEEK_TOKEN;
-        if(is_str(name, "ifpop"))
+        if(str_equal(name, "ifpop"))
                 return CMD_IF_POP_TOKEN;
-        if(is_str(name, "pop"))
+        if(str_equal(name, "pop"))
                 return CMD_POP_TOKEN;
-        if(is_str(name, "ifconfig"))
+        if(str_equal(name, "popx"))
+                return CMD_POPX_TOKEN;
+        if(str_equal(name, "ifconfig"))
                 return CMD_IF_CONFIG;
 
         fail("Command %s not recognized", name);
@@ -797,10 +797,8 @@ void render_command(int is_virtual, builtin command, renderer code)
                         break;
                 case CMD_POP_STATE:
                         if(is_virtual)
-                                render_indent(code, "repeat");
-                        else
-                                render_indent(code, "next");
-                        render(code, "_byte(pop_state());");
+                                render_indent(code, "incr = 0;");
+                        render_indent(code, "new_state = pop_state();");
                         break;
                 case CMD_PUSH_STACK:
                         render_call("push_stack(stack_", arg, code);
@@ -831,18 +829,19 @@ void render_command(int is_virtual, builtin command, renderer code)
                         render(code, arg);
                         render(code, "(pop_token());");
                         break;
+                case CMD_POPX_TOKEN:
+                        render_indent(code, "pop_token();");
+                        break;
         }
 }
 
 void render_rule_match(int is_virtual, rule r, renderer code)
 {
         if(is_virtual)
-                render_indent(code, "repeat");
-        else
-                render_indent(code, "next");
-        render(code, "_byte(state_");
+                render_indent(code, "incr = 0;");
+        render_indent(code, "new_state = state_");
         render(code, r->name);
-        render(code, ");");
+        render(code, ";");
 }
 
 void render_actions(int, action_list, renderer);
@@ -859,7 +858,7 @@ void render_action(int is_virtual, action a, renderer code)
                 case ACTION_RULE:
                         rule r = a->action.rule;
                         if(r->id < 0) {
-                                render_action(is_virtual, r->matches->this->action, code);
+                                render_action(is_virtual, r->matches->match->action, code);
                         } else {
                                 render_rule_match(is_virtual, r, code);
                         }
@@ -871,11 +870,11 @@ void render_action(int is_virtual, action a, renderer code)
 
 void render_if_block(int is_virtual, action_list al, renderer code)
 {
-        render_action(is_virtual, al->this, code);
+        render_action(is_virtual, al->action, code);
         al = al->next;
         if(!al)
                 fail("If without then");
-        render_action(is_virtual, al->this, code);
+        render_action(is_virtual, al->action, code);
         render_level(code, -1);
         render_indent(code, "}");
         al = al->next;
@@ -883,7 +882,7 @@ void render_if_block(int is_virtual, action_list al, renderer code)
                 render(code, " else {");
 
                 render_level(code, 1);
-                render_action(is_virtual, al->this, code);
+                render_action(is_virtual, al->action, code);
                 render_level(code, -1);
 
                 render_indent(code, "}");
@@ -904,11 +903,11 @@ int is_if_action(action a)
 
 void render_actions(int is_virtual, action_list al, renderer code)
 {
-        if(is_if_action(al->this)) {
+        if(is_if_action(al->action)) {
                 render_if_block(is_virtual, al, code);
         } else {
                 while(al) {
-                        render_action(is_virtual, al->this, code);
+                        render_action(is_virtual, al->action, code);
                         al = al->next;
                 }
         }
@@ -982,7 +981,7 @@ uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
                 case ACTION_RULE:
                         rule ar = a->action.rule;
                         if(ar->id < 0) {
-                                m->id = render_match_action(is_virtual, ar, ar->matches->this, code);
+                                m->id = render_match_action(is_virtual, ar, ar->matches->match, code);
                         } else {
                                 m->id = ar->id;
                         }
@@ -999,7 +998,7 @@ uint8_t render_rule_default_state(rule r, renderer code)
 {
         match_list ml = r->matches;
         while(ml) {
-                match m = ml->this;
+                match m = ml->match;
                 if(m->type == MATCH_ANY) {
                         return render_match_action(false, r, m, code);
                         break;
@@ -1017,7 +1016,7 @@ uint8_t render_rule_default_state(rule r, renderer code)
 
 
 
-void render_rule(rule r, renderer enums, renderer map, renderer code, int first)
+void render_rule(rule r, renderer map, renderer enums, renderer code, int first)
 {
         if(r->id < 0)
                 return;
@@ -1031,7 +1030,7 @@ void render_rule(rule r, renderer enums, renderer map, renderer code, int first)
 
         while(ml) {
                 int len;
-                match m = ml->this;
+                match m = ml->match;
                 uint8_t match_state;
                 switch(m->type) {
                         case MATCH_CLASS:
@@ -1072,92 +1071,61 @@ renderer renderer_new()
         return r;
 }
 
+void copy_until(FILE *in, FILE *out, char *tag)
+{
+        size_t tlen = tag ? strlen(tag) : 0;
+        char *line = NULL;
+        size_t len = 0;
+        ssize_t read;
+
+        while ((read = getline(&line, &len, in)) != -1) {
+                if(tag && 0 == strncmp(tag, line, tlen))
+                        return;
+                fprintf(out, "%s", line);
+        }
+        if(tag)
+                fail("Tag %s not found", tag);
+}
+
+void merge_renderer(FILE *in, FILE *out, renderer r, char *tag)
+{
+        copy_until(in, out, tag);
+        write_renderer(out, r);
+}
+
 void render_state(state states)
 {
         rule_list rl = states->rules;
-        renderer enums = renderer_new();
         renderer map = renderer_new();
+        renderer enums = renderer_new();
         renderer code = renderer_new();
 
-        render(enums, "typdef enum {");
-        render_level(enums, 1);
-
-        render(map, "uint8_t state_map[][256] = {");
         render_level(map, 1);
-
-        render(code, "jsonn_type jsonn_parse_next(jsonn_parser parser) {");
-        render_level(code, 1);
-        render_indent(code, "uint8_t *current = parser->current;");
-        render_indent(code, "uint8_t *last = parser->last;");
-        render_indent(code, "state current_state = parser->state");
-        render_indent(code, "jsonn_type result = JSONN_EOB");
-        render_indent(code, "while(current < last) {");
-        render_level(code, 1);
-        render_indent(code, "state new_state = state_map[current_state][*current];");
-        render_indent(code, "if(new_state < 0x80) {");
-        render_level(code, 1);
-        render_indent(code, "current_state = new_state;");
-        render_indent(code, "current++;");
-        render_indent(code, "continue;");
-        render_level(code, -1);
-        render_indent(code, "}");
-        render_indent(code, "current_state = state_error;");
-        render_indent(code, "switch(new_state) {");
+        render_level(enums, 1);
+        render_level(code, 2);
 
         int first = 1;
         while(rl) {
-                render_rule(rl->this, enums, map, code, first);
+                render_rule(rl->rule, map, enums, code, first);
                 first = 0;
                 rl = rl->next;
         }
 
-        render(enums, ",");
-        render_indent(enums, "state_error = 0xFF");
-        render_level(enums, -1);
-        render_indent(enums, "} state;");
+        FILE *skelfile = fopen("state.skel.c", "r");
+        if(!skelfile)
+                fail("Failed to open state.skel.c");
 
-        render_level(map, -1);
-        render_indent(map, "};");
-
-        render_indent(code, "}");
-        render_indent(code, "if(current_state == state_error)");
-        render_level(code, 1);
-        render_indent(code, "result = parse_error(parser);");
-        render_level(code, -1);
-        render_indent(code, "if(result != JSONN_EOB)");
-        render_level(code, 1);
-        render_indent(code, "break;");
-        render_level(code, -1);
-        render_level(code, -1);
-        render_indent(code, "}");
-        render_indent(code, "parser->state = current_state;");
-        render_indent(code, "parser->current = current;");
-        render_indent(code, "return result;");
-        render_level(code, -1);
-        render_indent(code, "}");
-
-        renderer header = renderer_new();
-        render(header, "// Auto generated by gen_state");
-        render_indent(header, "// Manual edits will be discarded");
-        render_indent(header, "");
-        render_indent(header, "#include <stdint.h>");
-        render_indent(header, "#include \"state_code.c\"");
-
-
-        FILE *stream = fopen("state.c", "w");
-        if(!stream)
+        FILE *cfile = fopen("state.c", "w");
+        if(!cfile)
                 fail("Failed to create state.c");
 
-        render(header, "\n\n");
-        render(map, "\n\n");
-        render(enums, "\n\n");
+        merge_renderer(skelfile, cfile, map, "<= map");
+        merge_renderer(skelfile, cfile, enums, "<= enums");
+        merge_renderer(skelfile, cfile, code, "<= code");
+        copy_until(skelfile, cfile, NULL);
 
-        write_renderer(header, stream);
-        write_renderer(map, stream);
-        write_renderer(enums, stream);
-        write_renderer(code, stream);
-
-        fclose(stream);
+        fclose(cfile);
+        fclose(skelfile);
 }
 
 int main(int argc, char *argv[])

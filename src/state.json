@@ -15,7 +15,7 @@
 
 "whitespace": {
         "$whitespace": "whitespace",
-        "/": [ {"ifconfig": "comments"}, "comment_leader" ],
+        "/": [ {"ifconfig": "comments"}, "comment_leader", "whitespace" ],
         "???": {"popstate": ""}
 },
 
@@ -187,14 +187,43 @@
                                         [{"ifpop": "string"}, "after_value"],
                                         "string"]],
         "0x21-0x7F": "string",
-        "0xC0-0xDF": [ {"push": "utf8"}, "continuation_1"],
-        "0xE0-0xEF": [ {"push": "utf8"}, "continuation_2"],
-        "0xF0-0xF7": [ {"push": "utf8"}, "continuation_3"]
+        "0xC2-0xDF": "continuation_1",
+        "0xE0": "check_e0",
+        "0xE1-0xEC": "continuation_2",
+        "0xED": "check_ed",
+        "0xEE-0xEF": "continuation_2",
+        "0xF0": "check_f0",
+        "0xF1-0xF3": "continuation_3",
+        "0xF4": "check_f4"
 },
 
-"continuation_1": { "0x80-0xBF": [{"pop": "utf8"}, "string"] },
-"continuation_2": { "0x80-0xBF": "continuation_1" },
-"continuation_3": { "0x80-0xBF": "continuation_2" },
+"check_e0": {
+        "0xA0-0xBF": "continuation_1"
+},
+
+"check_ed": {
+        "0x80-0x9F": "continuation_1"
+},
+
+"check_f0": {
+        "0x90-0xBF": "continuation_2"
+},
+
+"check_f4": {
+        "0x80-0x8F": "continuation_2"
+},
+
+"continuation_1": { 
+        "0x80-0xBF": "string" 
+},
+
+"continuation_2": { 
+        "0x80-0xBF": "continuation_1" 
+},
+
+"continuation_3": { 
+        "0x80-0xBF": "continuation_2" 
+},
 
 "escape": {
         "$single_char_escapes": [{"pop": "escape"}, "string"],
@@ -217,7 +246,7 @@
 },
 
 "low_surrogate_2": {
-        "$low_surrogate_2": [ {"pop": "surrogate"}, "hex_3" ]
+        "$low_surrogate_2": [ {"popx": "surrogate"}, "hex_3" ]
 },
 
 "hex_2": { 
