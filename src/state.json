@@ -15,7 +15,7 @@
 
 "whitespace": {
         "$whitespace": "whitespace",
-        "/": [ {"ifconfig": "comments"}, "comment_leader", "whitespace" ],
+        "/": [{"ifconfig": "comments"}, "comment_leader", "whitespace" ],
         "???": {"popstate": ""}
 },
 
@@ -45,20 +45,25 @@
 },
 
 "w_value": {
-        "n": [ {"push": "null"}, "null_2"],
-        "t": [ {"push": "true"}, "true_2"],
-        "f": [ {"push": "false"}, "false_2"],
-        "-": [ {"push": "number"}, "minus"],
-        "0": [ {"push": "number"}, "zero_number"],
-        "$1-9": [ {"push": "number"}, "number"],
-        "\"": [ {"push": "string"}, {"push": "double_quote"}, "string" ],
-        "'": [ {"ifconfig": "single_quotes"},
-                [{"push": "string"}, {"push": "single_quote"}, "string"]
-        ],
+        "n": [{"push": "null"}, "null_2"],
+        "t": [{"push": "true"}, "true_2"],
+        "f": [{"push": "false"}, "false_2"],
+        "-": [{"push": "number"}, "minus"],
+        "0": [{"push": "number"}, "zero_number"],
+        "$1-9": [{"push": "number"}, "number"],
+        "\"": [{"push": "string"}, {"push": "double_quote"}, "string" ],
+        "'": [{"ifconfig": "single_quotes"}, "single_quote_string"],
         "{": [ {"push": "object"}, "key" ],
         "[": [ {"push": "array"}, "value" ],
-        "???": [ {"ifconfig": "unquoted_strings"}, 
-                [{"push": "string"}, "string"] ]
+        "???": [{"ifconfig": "unquoted_strings"}, "no_quote_string"]
+},
+
+"no_quote_string": {
+        "???": [{"push": "string"}, "string"] 
+},
+
+"single_quote_string": {
+        "???": [{"push": "string"}, {"push": "single_quote"}, "string"]
 },
 
 "key": {
@@ -66,12 +71,17 @@
 },
 
 "w_key": {
-        "\"": [ {"push": "key"}, {"push": "double_quote"}, "string" ],
-        "'": [ {"ifconfig": "single_quotes"},
-                [{"push": "key"}, {"push": "single_quote"}, "string"]
-        ],
-        "???": [ {"ifconfig": "unquoted_keys"},
-                [{"push": "key"}, "string"]]
+        "\"": [{"push": "key"}, {"push": "double_quote"}, "string" ],
+        "'": [{"ifconfig": "single_quotes"}, "single_quote_key"],
+        "???": [{"ifconfig": "unquoted_keys"}, "no_quote_key"]
+},
+
+"no_quote_key": {
+        "???": [{"push": "key"}, "string"]
+},
+
+"single_quote_key": {
+        "???": [{"push": "key"}, {"push": "single_quote"}, "string"]
 },
 
 "after_key": {
@@ -170,22 +180,15 @@
 
 
 "string": {
-        "\\": [{"push": "escape"}, 
-                [{"ifconfig": "escape_characters"}, "escape_chars", "escape" ]
-        ],
+        "\\": [{"ifconfig": "escape_characters"}, "start_escape_chars", "start_escape"],
         "\"": [{"ifpop": "double_quote"}, 
-                        [{"ifpop": "key"}, "after_key", 
-                                [{"ifpop": "string"}, "after_value"]],
-                        "string"],
-        "'": [{"ifpop": "single_quote"}, 
-                        [{"ifpop": "key"}, "after_key", 
-                                [{"ifpop": "string"}, "after_value"]],
-                        "string"],
-        " ": [{"ifconfig": "unquoted_keys"},
-                        [{"ifpop": "key"}, "after_key"],
-                                [{"ifconfig": "unquoted_strings"},
-                                        [{"ifpop": "string"}, "after_value"],
-                                        "string"]],
+                        [
+                                [{"ifpop": "key"}, "after_key"],
+                                [{"ifpop": "string"}, "after_value"]
+                        ]
+               ],
+        "'": [{"ifconfig": "single_quotes"}, "end_single_quote", "string"],
+        " ": [{"ifconfig": ["unquoted_strings", "unquoted_keys"]}, "end_no_quote", "string"],
         "0x21-0x7F": "string",
         "0xC2-0xDF": "continuation_1",
         "0xE0": "check_e0",
@@ -195,6 +198,34 @@
         "0xF0": "check_f0",
         "0xF1-0xF3": "continuation_3",
         "0xF4": "check_f4"
+},
+
+"end_no_quote": {
+        "???": [
+                [{"ifpop": "key"}, "after_key"],
+                [{"ifpop": "string"}, "after_value"]
+        ]
+},
+
+"end_single_quote": {
+        "???": [{"ifpop": "single_quote"}, 
+                        [
+                         [{"ifpop": "key"}, "after_key"], 
+                         [{"ifpop": "string"}, "after_value"]
+                        ]
+        ]
+},
+
+"start_escape": {
+        "???": [{"push": "escape"}, "escape"]
+},
+
+"start_escape_chars": {
+        "???": [{"ifnpeek": "double_quote"},
+                        [{"ifnpeek": "single_quote"},
+                                [{"push": "escape_chars"}, "escape_chars"]
+                        ]
+                ]
 },
 
 "check_e0": {
@@ -227,12 +258,16 @@
 
 "escape": {
         "$single_char_escapes": [{"pop": "escape"}, "string"],
-        "'": [ {"ifconfig": "single_quotes"}, [{"pop": "escape"}, "string"]],
-        "u": "hex_1"
+        "'": [{"ifconfig": "single_quotes"}, "end_escape"],
+        "u": [{"swap": "escape_u"}, "hex_1"]
+},
+
+"end_escape": {
+        "???": [{"pop": "escape"}, "string"]
 },
 
 "escape_chars": {
-        "...": [{"pop": "escape"}, "string"]
+        "...": [{"pop": "escape_chars"}, "string"]
 },
 
 "hex_1": {
@@ -246,7 +281,7 @@
 },
 
 "low_surrogate_2": {
-        "$low_surrogate_2": [ {"popx": "surrogate"}, "hex_3" ]
+        "$low_surrogate_2": [ {"pop": "surrogate"}, "hex_3" ]
 },
 
 "hex_2": { 
@@ -260,7 +295,7 @@
 "hex_4": { 
         "$hex_digit": [ 
                 [{"ifpeek": "surrogate"}, "low_surrogate"],
-                [{"pop": "escape"}, "string"]
+                [{"pop": "escape_u"}, "string"]
         ]
 },
 

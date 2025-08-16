@@ -81,9 +81,84 @@ struct action_s {
         } action;
 };
 
+typedef struct {
+        char *name;
+        int value;
+} map;
+
+#define MAPPING(X) map X[] = {
+#define MAP(X, Y) { X, Y },
+#define MAPPING_END() { NULL, -1 } };
+
+typedef enum {
+        TOKEN_FINAL,
+        TOKEN_MULTI,
+        TOKEN_PARTIAL,
+        TOKEN_MARKER
+} token_type;
+
+MAPPING(tokens)
+MAP("null", TOKEN_FINAL)
+MAP("true", TOKEN_FINAL)
+MAP("null", TOKEN_FINAL)
+MAP("true", TOKEN_FINAL)
+MAP("false", TOKEN_FINAL)
+MAP("number", TOKEN_FINAL)
+MAP("string", TOKEN_FINAL)
+MAP("key", TOKEN_FINAL)
+MAP("object", TOKEN_MULTI)
+MAP("array", TOKEN_MULTI)
+MAP("escape", TOKEN_PARTIAL)
+MAP("escape_u", TOKEN_PARTIAL)
+MAP("escape_chars", TOKEN_PARTIAL)
+MAP("double_quote", TOKEN_MARKER)
+MAP("single_quote", TOKEN_MARKER)
+MAP("surrogate", TOKEN_MARKER)
+MAPPING_END()
+
+// don't need the value but want to validate config names
+MAPPING(configs)
+MAP("comments", JSONN_FLAG_COMMENTS)
+MAP("single_quotes", JSONN_FLAG_SINGLE_QUOTES)
+MAP("unquoted_strings", JSONN_FLAG_UNQUOTED_STRINGS)
+MAP("unquoted_keys", JSONN_FLAG_UNQUOTED_KEYS)
+MAP("trailing_commas", JSONN_FLAG_TRAILING_COMMAS)
+MAP("optional_commas", JSONN_FLAG_OPTIONAL_COMMAS)
+MAP("escape_characters", JSONN_FLAG_ESCAPE_CHARACTERS)
+MAPPING_END()
+
+typedef enum {
+        CMD_PUSH_STATE,
+        CMD_POP_STATE,
+        CMD_PUSH,
+        CMD_IF_PEEK,
+        CMD_IFN_PEEK,
+        CMD_IF_POP,
+        CMD_POP,
+        CMD_SWAP,
+        CMD_IF_CONFIG
+} builtin_type;
+
+MAPPING(builtins)
+MAP("pushstate", CMD_PUSH_STATE)
+MAP("popstate", CMD_POP_STATE)
+MAP("push", CMD_PUSH)
+MAP("ifpeek", CMD_IF_PEEK)
+MAP("ifnpeek", CMD_IFN_PEEK)
+MAP("ifpop", CMD_IF_POP)
+MAP("pop", CMD_POP)
+MAP("swap", CMD_SWAP)
+MAP("ifconfig", CMD_IF_CONFIG)
+MAPPING_END()
+
 struct builtin_s {
+        builtin_type type;
         char *name;
         char *arg;
+        union {
+                int config;
+                token_type token_type;
+        } arg_info;
 };
 
 struct class_list_s {
@@ -108,32 +183,28 @@ struct action_list_s {
 
 struct renderer_s {
         int level;
+        int startlevel;
         str_buf sbuf;
 };
-
-typedef enum {
-        CMD_PUSH_STATE,
-        CMD_POP_STATE,
-        CMD_PUSH_STACK,
-        CMD_IF_POP_STACK,
-        CMD_IF_PEEK_STACK,
-        CMD_PUSH_TOKEN,
-        CMD_IF_PEEK_TOKEN,
-        CMD_IFN_PEEK_TOKEN,
-        CMD_IF_POP_TOKEN,
-        CMD_POP_TOKEN,
-        CMD_POPX_TOKEN,
-        CMD_IF_CONFIG
-} command_type;
 
 static uint8_t gen_rule_id = 0;
 static uint8_t gen_action_id = 0x80;
 static char *gen_hex_chars = "0123456789ABCDEF";
 
-
 int str_equal(char *s1, char *s2)
 {
         return 0 == strcmp(s1, s2);
+}
+
+int map_lookup(map *mp, char *name)
+{
+        map m = *mp++;
+        while(m.name) {
+                if(str_equal(name, m.name))
+                        return m.value;
+                m = *mp++;
+        }
+        return m.value;
 }
 
 void warn(char *fmt, ...)
@@ -235,17 +306,50 @@ void append_rule(state states, rule r)
 
 builtin parse_builtin(jsonn_parser p)
 {
+        // validate here as best to combine multiple ifconfig flags early
+        // we have nowhere to put multiple config flag strings
+        // but we can or all of the flags into one value
+
         builtin b = fmalloc(sizeof(struct builtin_s));
 
         jsonn_type type = jsonn_parse_next(p);
         expect_type(type, JSONN_KEY);
         char *key = result_str(p);
 
-        type = jsonn_parse_next(p);
-        expect_type(type, JSONN_STRING);
-
         b->name = key;
-        b->arg = result_str(p);
+        b->type = map_lookup(builtins, key);
+
+        type = jsonn_parse_next(p);
+        if(type == JSONN_BEGIN_ARRAY && b->type == CMD_IF_CONFIG) {
+                // config can take multiple ored together
+                str_buf sbuf = str_buf_new();
+                int flag = 0;
+                while(JSONN_STRING == (type = jsonn_parse_next(p))) {
+                        char *r = result_str(p);
+                        if(0 != flag)
+                                // early rendering makes life much easier
+                                str_buf_append_chars(sbuf, " | config_");
+                        str_buf_append_chars(sbuf, r); 
+                        flag |= map_lookup(configs, r);
+                }
+                expect_type(type, JSONN_END_ARRAY);
+                b->arg_info.config = flag;
+                str_buf_append(sbuf, (uint8_t *)"", 1);
+                str_buf_content(sbuf, (uint8_t **)&b->arg);
+        } else {
+                expect_type(type, JSONN_STRING);
+                b->arg = result_str(p);
+                switch(b->type) {
+                case CMD_IF_CONFIG:
+                        b->arg_info.config = map_lookup(configs, b->arg);
+                        break;
+                case CMD_POP_STATE:
+                case CMD_PUSH_STATE:
+                        break;
+                default:
+                        b->arg_info.token_type = map_lookup(tokens, b->arg);
+                }
+        }
 
         expect_next(JSONN_END_OBJECT, p);
 
@@ -451,6 +555,32 @@ rule find_rule(state states, char *name)
         }
         return NULL;
 }
+int validate_builtin(builtin b)
+{
+        if(b->type == -1) {
+                warn("Unknown builtin '%s'", b->name);
+                return 0;
+        }
+        switch(b->type) {
+        case CMD_PUSH_STATE:
+        case CMD_POP_STATE:
+                // no validation required
+                break;
+        case CMD_IF_CONFIG:
+                if(b->arg_info.config < 0) {
+                        warn("Unknown config '%s'", b->arg);
+                        return 0;
+                }
+                break;
+        default:
+                if(b->arg_info.token_type == -1) {
+                        warn("Unknown token '%s'", b->arg);
+                        return 0;
+                }
+                break;
+        }
+        return 1;
+}
 
 int validate_action(state states, action a)
 {
@@ -464,7 +594,7 @@ int validate_action(state states, action a)
                         }
                         break;
                 case ACTION_COMMAND:
-                        // validated at parse time
+                        res &= validate_builtin(a->action.command);
                         break;
                 case ACTION_RULE_NAME:
                         char *name = a->action.rule_name;
@@ -678,6 +808,12 @@ void render_level(renderer r, int inc)
         r->level += inc;
 }
 
+void render_startlevel(renderer r, int l)
+{
+        r->level = l;
+        r->startlevel = l;
+}
+
 void write_renderer(FILE *stream, renderer r)
 {
         uint8_t *str;
@@ -744,94 +880,68 @@ void render_if(char *prefix, char *arg, renderer code)
         render_level(code, 1);
 }
 
-int is_stack_arg(char *arg)
-{
-        return str_equal(arg, "object") || str_equal(arg, "array");
-}
-
-command_type determine_command_type(builtin command)
-{
-        char *name = command->name;
-        char *arg = command->arg;
-
-        if(is_stack_arg(arg)) {
-                if(str_equal(name, "push"))
-                        return CMD_PUSH_STACK;
-                else if(str_equal(name, "ifpop"))
-                        return CMD_IF_POP_STACK;
-                else if(str_equal(name, "ifpeek"))
-                        return CMD_IF_PEEK_STACK;
-        }
-
-        if(str_equal(name, "popstate"))
-                return CMD_POP_STATE;
-        if(str_equal(name, "pushstate"))
-                return CMD_PUSH_STATE;
-        if(str_equal(name, "push"))
-                return CMD_PUSH_TOKEN;
-        if(str_equal(name, "ifpeek"))
-                return CMD_IF_PEEK_TOKEN;
-        if(str_equal(name, "ifnpeek"))
-                return CMD_IFN_PEEK_TOKEN;
-        if(str_equal(name, "ifpop"))
-                return CMD_IF_POP_TOKEN;
-        if(str_equal(name, "pop"))
-                return CMD_POP_TOKEN;
-        if(str_equal(name, "popx"))
-                return CMD_POPX_TOKEN;
-        if(str_equal(name, "ifconfig"))
-                return CMD_IF_CONFIG;
-
-        fail("Command %s not recognized", name);
-        // never get here
-        return -1;
-}
-
-
-void render_command(int is_virtual, builtin command, renderer code)
+void render_builtin(int is_virtual, builtin command, renderer code)
 {
         char *arg = command->arg;
-        switch(determine_command_type(command)) {
-                case CMD_PUSH_STATE:
-                        render_call("push_state(state_", arg, code);
-                        break;
-                case CMD_POP_STATE:
-                        if(is_virtual)
-                                render_indent(code, "incr = 0;");
-                        render_indent(code, "new_state = pop_state();");
-                        break;
-                case CMD_PUSH_STACK:
-                        render_call("push_stack(stack_", arg, code);
-                        break;
-                case CMD_IF_POP_STACK:
-                        render_if("ifpop_stack(stack_", arg, code);
-                        break;
-                case CMD_IF_PEEK_STACK:
-                        render_if("ifpeek_stack(stack_", arg, code);
-                        break;
-                case CMD_IF_CONFIG:
-                        render_if("ifconfig(config_", arg, code);
-                        break;
-                case CMD_PUSH_TOKEN:
-                        render_call("push_token(token_", arg, code);
-                        break;
-                case CMD_IF_PEEK_TOKEN:
-                        render_if("ifpeek_token(token_", arg, code);
-                        break;
-                case CMD_IFN_PEEK_TOKEN:
-                        render_if("!ifpeek_token(token_", arg, code);
-                        break;
-                case CMD_IF_POP_TOKEN:
-                        render_if("ifpeek_token(token_", arg, code);
-                        // fallthrough
-                case CMD_POP_TOKEN:
+        switch(command->type) {
+        case CMD_PUSH_STATE:
+                render_call("push_state(state_", arg, code);
+                break;
+        case CMD_POP_STATE:
+                if(is_virtual)
+                        render_indent(code, "incr = 0;");
+                render_indent(code, "new_state = pop_state();");
+                break;
+        case CMD_IF_CONFIG:
+                render_if("if_config(config_", arg, code);
+                break;
+        case CMD_PUSH:
+                if(command->arg_info.token_type == TOKEN_MULTI) {
+                        render_indent(code, "result = begin_");
+                        render(code, arg);
+                        render(code, "();");
+                }
+                render_call("push_token(token_", arg, code);
+                break;
+        case CMD_IF_PEEK:
+                render_if("ifpeek_token(token_", arg, code);
+                break;
+        case CMD_IFN_PEEK:
+                render_if("!ifpeek_token(token_", arg, code);
+                break;
+        case CMD_IF_POP:
+                render_if("ifpeek_token(token_", arg, code);
+                // fallthrough
+        case CMD_POP:
+                switch(command->arg_info.token_type) {
+                case TOKEN_FINAL:
                         render_indent(code, "result = accept_");
                         render(code, arg);
                         render(code, "(pop_token());");
                         break;
-                case CMD_POPX_TOKEN:
+                case TOKEN_MULTI:
+                        render_indent(code, "result = end_");
+                        render(code, arg);
+                        render(code, "(pop_token());");
+                        break;
+                case TOKEN_PARTIAL:
+                        render_indent(code, "process_");
+                        render(code, arg);
+                        render(code, "(pop_token());");
+                        break;
+                case TOKEN_MARKER:
                         render_indent(code, "pop_token();");
                         break;
+                }
+                break;
+        case CMD_SWAP:
+                render_indent(code, "swap_token(token_");
+                render(code, arg);
+                render(code, ");");
+                break;
+        default:
+                fail("Unexpected builtin command '%s' [%d]", command->name, command->type);
+ 
         }
 }
 
@@ -842,6 +952,9 @@ void render_rule_match(int is_virtual, rule r, renderer code)
         render_indent(code, "new_state = state_");
         render(code, r->name);
         render(code, ";");
+
+        if(code->level > 1 + code->startlevel)
+                render_indent(code, "break;");
 }
 
 void render_actions(int, action_list, renderer);
@@ -853,7 +966,7 @@ void render_action(int is_virtual, action a, renderer code)
                         render_actions(is_virtual, a->action.actions, code);
                         break;
                 case ACTION_COMMAND:
-                        render_command(is_virtual, a->action.command, code);
+                        render_builtin(is_virtual, a->action.command, code);
                         break;
                 case ACTION_RULE:
                         rule r = a->action.rule;
@@ -974,7 +1087,7 @@ uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
                 case ACTION_COMMAND:
                         m->id = render_new_action(code);
                         render_action_comment(is_virtual, r, m, code);
-                        render_command(is_virtual, a->action.command, code);
+                        render_builtin(is_virtual, a->action.command, code);
                         render_indent(code, "break;");
                         render_level(code, -1);
                         break;
@@ -1067,6 +1180,7 @@ renderer renderer_new()
 {
         renderer r = fmalloc(sizeof(struct renderer_s));
         r->level = 0;
+        r->startlevel = 0;
         r->sbuf = str_buf_new();
         return r;
 }
@@ -1100,9 +1214,9 @@ void render_state(state states)
         renderer enums = renderer_new();
         renderer code = renderer_new();
 
-        render_level(map, 1);
-        render_level(enums, 1);
-        render_level(code, 2);
+        render_startlevel(map, 1);
+        render_startlevel(enums, 1);
+        render_startlevel(code, 2);
 
         int first = 1;
         while(rl) {
