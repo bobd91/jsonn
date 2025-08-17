@@ -691,7 +691,7 @@ static void input_read(jpg_parser p, uint8_t *start)
        return max == 0;
 }
 
-static void parser_read_next(jpg_parser p)
+static int parser_read_next(jpg_parser p)
 {
         uint8_t start = p->input;
         if(p->token_ptr >= 0) {
@@ -721,5 +721,9 @@ static void parser_read_next(jpg_parser p)
                         p_write(p, t->pos, p->last - t->pos);
                 }
         }
-        input_read(p, start);
+        int l input_read(p, start);
+        if(l >= 0)
+                p->seen_eof = (l == 0);
+
+        return l;
 }

@@ -1,0 +1,351 @@
+#include <stdio.h>
+#include <fcntl.h>
+#include <math.h>
+
+// TODO error handling of writer errors
+
+#define CTX_TO_INT(X) ((int)(int64_t)X)
+#define INT_TO_CTX(X)   ((void *)(int64_t)X)
+
+char number_buffer[32];
+
+typedef struct jpg_print_ctx_s *jpg_print_ctx;
+typedef int (*write_fn)(void *, uint8_t *, size_t);
+
+struct jpg_print_ctx_s {
+        int level;
+        int comma;
+        int key;
+        int pretty;
+        int nl;
+        write_fn write;
+        void *write_ctx;
+};
+
+static int write_utf8(jpg_print_ctx ctx, uint8_t *bytes, size_t count) 
+{
+        uint8_t *s = bytes;
+        uint8_t *last_s = s;
+
+        char e[3] = "\\_";
+        char u[7] = "\\u0000";
+        char *print_p;
+        int print_w = 0;
+
+        while((s - bytes) < count) {
+                if(*s < 0x20) {
+                        print_p = e;
+                        print_w = 2;
+                        switch(*s) {
+                        case '\b':
+                                e[1] = 'b';
+                                break;
+                        case '\t':
+                                e[1] = 't';
+                                break;
+                        case '\n':
+                                e[1] = 'n';
+                                break;
+                        case '\f':
+                                e[1] = 'f';
+                                break;
+                        case '\r':
+                                e[1] = 'r';
+                                break;
+                        default:
+                                snprintf(u + 4, 3, "%.2X", (int)*s);
+                                print_p = u;
+                                print_w = 6;
+                        }
+                        s++;
+                } else if(*s < 0x80) {
+                        print_p = e;
+                        print_w = 2;
+                        switch(*s) {
+                        case '"':
+                                e[1] = '"';
+                                break;
+                        case '\\':
+                                e[1] = '\\';
+                                break;
+                        default:
+                                print_p = NULL;
+                        }
+                        s++;
+                } else {
+                        print_p = NULL;
+                        // we validate UTF8 sequences from outside
+                        // but expect stuff from inside to be validated
+
+#ifdef JPG_VALIDATE_UTF8_OUT
+                        int v = valid_utf8_sequence(s, count - (s - bytes));
+                        if(!v)
+                                return 0;
+                        s += v;
+#else
+                        s++;
+#endif
+
+                }
+                if(print_p) {
+                        // We have to print an escape sequence 
+                        // first print stuff we skipped
+                        if(!ctx->write(ctx->write_ctx, last_s, s - last_s - 1))
+                                return 0;
+                        last_s = s;
+                        if(!ctx->write(ctx->write_ctx, (uint8_t *)print_p, print_w))
+                                return 0;
+                }
+        }
+        return ctx->write(ctx->write_ctx, last_s, s - last_s);
+}
+
+static int write_c(jpg_print_ctx ctx, char c)
+{
+        return ctx->write(ctx->write_ctx, (uint8_t *)&c, 1);
+}
+
+static int write_s(jpg_print_ctx ctx, char *s)
+{
+        return ctx->write(ctx->write_ctx, (uint8_t *)s, strlen(s));
+}
+
+static void print_indent(jpg_print_ctx ctx)
+{
+        // Avoid leading newline
+        if(ctx->nl)
+                write_c(ctx, '\n');
+        else
+                ctx->nl = 1;
+
+        for(int i = 0 ; i < ctx->level ; i++)
+                write_s(ctx, "    ");
+}
+
+static void print_prefix(jpg_print_ctx ctx)
+{
+        if(!ctx->key) {
+                if(ctx->comma)
+                        write_c(ctx, ',');
+                if(ctx->pretty)
+                        print_indent(ctx);
+                
+        }
+        ctx->comma = 1;
+        ctx->key = 0;
+}
+
+static void print_begin_prefix(jpg_print_ctx ctx)
+{
+        print_prefix(ctx);
+        ctx->comma = 0;
+        ctx->level++;
+}
+
+static void print_end_prefix(jpg_print_ctx ctx)
+{
+        ctx->level--;
+        if(ctx->comma) {
+                ctx->comma = 0; // no trailing comma
+                print_prefix(ctx);
+        }
+        ctx->comma = 1;
+}
+
+static void print_key_suffix(jpg_print_ctx ctx)
+{
+        write_c(ctx, ':');
+        if(ctx->pretty)
+                write_c(ctx, ' ');
+        ctx->key = 1;
+}
+
+static int print_boolean(void *ctx, int is_true) 
+{
+        print_prefix(ctx);
+        write_s(ctx, is_true ? "true" : "false");
+        return 0;
+}
+
+static int print_null(void *ctx) 
+{
+        print_prefix(ctx);
+        write_s(ctx, "null");
+        return 0;
+}
+
+static int print_integer(void *ctx, int64_t l) 
+{
+        print_prefix(ctx);
+        int r = snprintf(number_buffer, sizeof(number_buffer), "%ld", l);
+        if(r < 0) {
+                // TODO better errors
+                return 1;
+        }
+
+        write_s(ctx, number_buffer);
+        return 0;
+}
+
+static int print_real(void *ctx, double d) 
+{
+        if(!isnormal(d)) {
+                // TODO better errors
+                return 1;
+        }
+        print_prefix(ctx);
+        int r = snprintf(number_buffer, sizeof(number_buffer), "%16g", d);
+        if(r < 0) {
+                // TODO better errors
+                return 1;
+        }
+
+        // snprintf(%16g) writes at the bak of the buffer
+        // so we get lots of leading spaces
+        char *s = number_buffer;
+        while(*s == ' ')
+                s++;
+        write_s(ctx, s);
+
+        // real number without decimal point or exponent
+        // add .0 at the end to preserve type at next JSON decode
+        if(r == strcspn(number_buffer, ".e"))
+                write_s(ctx, ".0");
+
+        return 0;
+}
+
+static int print_string(void *ctx, uint8_t *bytes, size_t length)
+{
+        print_prefix(ctx);
+        write_c(ctx, '"');
+        write_utf8(ctx, bytes, length); 
+        write_c(ctx, '"');
+        return 0;
+}
+
+static int print_key(void *ctx, uint8_t *bytes, size_t length) 
+{
+        print_prefix(ctx);
+        write_c(ctx, '"');
+        write_utf8(ctx, bytes, length);
+        write_c(ctx, '"');
+        print_key_suffix(ctx);  
+        return 0;
+}
+
+static int print_begin_array(void *ctx)
+{
+        print_begin_prefix(ctx);
+        write_c(ctx, '[');
+        return 0;
+}
+
+static int print_end_array(void *ctx)
+{
+        print_end_prefix(ctx);
+        write_c(ctx, ']');
+        return 0;
+}
+
+static int print_begin_object(void *ctx) 
+{
+        print_begin_prefix(ctx);
+        write_c(ctx, '{');
+        return 0;
+}
+
+static int print_end_object(void *ctx) 
+{
+        print_end_prefix(ctx);
+        write_c(ctx, '}');
+        return 0;
+}
+
+static int print_error(void *ctx, jpg_error_code code, int at)
+{
+        fprintf(stderr, "\nError: %d [%d]", code, at);
+        return 1;
+}
+
+
+static jpg_callbacks printer_callbacks = {
+        .boolean = print_boolean,
+        .null = print_null,
+        .integer = print_integer,
+        .real = print_real,
+        .string = print_string,
+        .key = print_key,
+        .begin_array = print_begin_array,
+        .end_array = print_end_array,
+        .begin_object = print_begin_object,
+        .end_object = print_end_object,
+        .error = print_error
+};
+
+jpg_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
+{
+        jpg_visitor v = jpg_visitor_new(
+                        &printer_callbacks, 
+                        sizeof(struct jpg_print_ctx_s));
+        if(!v)
+                return NULL;
+
+        jpg_print_ctx ctx = v->ctx;
+
+        ctx->level = 0;
+        ctx->comma = 0;
+        ctx->key = 0;
+        ctx->pretty = pretty;
+        ctx->nl = 0;
+        ctx->write = write;
+        ctx->write_ctx = write_ctx;
+
+        return v;
+}
+
+int write_fd(void *ctx, uint8_t *bytes, size_t count)
+{
+        int fd = CTX_TO_INT(ctx);
+        uint8_t *start = bytes;
+        size_t size = count;
+        while(size) {
+                size_t w = write(fd, start, size);
+                if(w < 0) {
+                        // TODO errors
+                        return -1;
+                }
+                start += w;
+                size -= w;
+        }
+        return 1;
+}
+
+jpg_visitor jpg_file_printer(int fd, int pretty)
+{
+        return print_visitor(write_fd, INT_TO_CTX(fd), pretty);
+}
+
+jpg_visitor jpg_stream_printer(FILE *stream, int pretty)
+{
+        return jpg_file_printer(fileno(stream), pretty);
+}
+
+int write_buffer(void *ctx, uint8_t *bytes, size_t count)
+{
+        str_buf sbuf = ctx;
+        return str_buf_append(sbuf, bytes, count)
+                ? 1
+                : -1;
+}
+
+jpg_visitor jpg_buffer_printer(str_buf sbuf, int pretty)
+{
+        return print_visitor(write_buffer, sbuf, pretty);
+}
+
+
+
+
+
+

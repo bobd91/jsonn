@@ -20,7 +20,7 @@ typedef struct action_list_s *action_list;
 typedef struct renderer_s *renderer;
 
 #define MAX_CHARS_IN_CLASS 22
-
+#define CODE_START_LEVEL 3
 
 struct state_s {
         class_list classes;
@@ -103,16 +103,19 @@ MAP("true", TOKEN_FINAL)
 MAP("null", TOKEN_FINAL)
 MAP("true", TOKEN_FINAL)
 MAP("false", TOKEN_FINAL)
-MAP("number", TOKEN_FINAL)
+MAP("integer", TOKEN_FINAL)
+MAP("real", TOKEN_FINAL)
 MAP("string", TOKEN_FINAL)
 MAP("key", TOKEN_FINAL)
+MAP("sq_string", TOKEN_FINAL)
+MAP("sq_key", TOKEN_FINAL)
+MAP("nq_string", TOKEN_FINAL)
+MAP("nq_key", TOKEN_FINAL)
 MAP("object", TOKEN_MULTI)
 MAP("array", TOKEN_MULTI)
 MAP("escape", TOKEN_PARTIAL)
 MAP("escape_u", TOKEN_PARTIAL)
 MAP("escape_chars", TOKEN_PARTIAL)
-MAP("double_quote", TOKEN_MARKER)
-MAP("single_quote", TOKEN_MARKER)
 MAP("surrogate", TOKEN_MARKER)
 MAPPING_END()
 
@@ -871,13 +874,25 @@ void render_call(char *prefix, char *arg, renderer code)
         render(code, ");");
 }
 
-void render_if(char *prefix, char *arg, renderer code)
+void render_if(int not, char *prefix, char *arg, char *close, renderer code)
 {
         render_indent(code, "if(");
+        if(not)
+                render(code, "!");
         render(code, prefix);
         render(code, arg);
-        render(code, ")) {");
+        render(code, close);
+        render(code, ") {");
         render_level(code, 1);
+}
+
+void render_ifpeek(int not, builtin command, renderer code)
+{
+        if(command->arg_info.token_type == TOKEN_MULTI) {
+                render_if(not, "in_", command->arg, "()", code);
+        } else {
+                render_if(not, "ifpeek_token(token_", command->arg, ")", code);
+        }
 }
 
 void render_builtin(int is_virtual, builtin command, renderer code)
@@ -893,24 +908,25 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 render_indent(code, "new_state = pop_state();");
                 break;
         case CMD_IF_CONFIG:
-                render_if("if_config(config_", arg, code);
+                render_if(0, "if_config(config_", arg, ")", code);
                 break;
         case CMD_PUSH:
                 if(command->arg_info.token_type == TOKEN_MULTI) {
                         render_indent(code, "result = begin_");
                         render(code, arg);
                         render(code, "();");
+                } else {
+                        render_call("push_token(token_", arg, code);
                 }
-                render_call("push_token(token_", arg, code);
                 break;
         case CMD_IF_PEEK:
-                render_if("ifpeek_token(token_", arg, code);
+                render_ifpeek(0, command, code);
                 break;
         case CMD_IFN_PEEK:
-                render_if("!ifpeek_token(token_", arg, code);
+                render_ifpeek(1, command, code);
                 break;
         case CMD_IF_POP:
-                render_if("ifpeek_token(token_", arg, code);
+                render_ifpeek(0, command, code);
                 // fallthrough
         case CMD_POP:
                 switch(command->arg_info.token_type) {
@@ -922,7 +938,7 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 case TOKEN_MULTI:
                         render_indent(code, "result = end_");
                         render(code, arg);
-                        render(code, "(pop_token());");
+                        render(code, "();");
                         break;
                 case TOKEN_PARTIAL:
                         render_indent(code, "process_");
@@ -1216,7 +1232,7 @@ void render_state(state states)
 
         render_startlevel(map, 1);
         render_startlevel(enums, 1);
-        render_startlevel(code, 2);
+        render_startlevel(code, CODE_START_LEVEL);
 
         int first = 1;
         while(rl) {
@@ -1225,11 +1241,11 @@ void render_state(state states)
                 rl = rl->next;
         }
 
-        FILE *skelfile = fopen("state.skel.c", "r");
+        FILE *skelfile = fopen("jpg_state.skel.c", "r");
         if(!skelfile)
                 fail("Failed to open state.skel.c");
 
-        FILE *cfile = fopen("state.c", "w");
+        FILE *cfile = fopen("jpg_state.c", "w");
         if(!cfile)
                 fail("Failed to create state.c");
 
