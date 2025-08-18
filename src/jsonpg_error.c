@@ -5,13 +5,12 @@ static void dump_p(jsonpg_parser p)
         fprintf(stderr, "Parser Error:\n");
         fprintf(stderr, "Error: %d\n", p->result.error.code);
         fprintf(stderr, "At Position: %ld\n", p->result.error.at);
-        fprintf(stderr, "Input Length: %ld\n", p->last - p->start);
-        fprintf(stderr, "Input Processed: %ld\n", p->current - p->start);
-        fprintf(stderr, "Next State: %d\n", p->next);
-        fprintf(stderr, "Stack Size: %ld\n", p->stack_size);
-        fprintf(stderr, "Stack Pointer: %ld\n", p->stack_pointer);
+        fprintf(stderr, "Input Length: %ld\n", p->last - p->input);
+        fprintf(stderr, "Input Processed: %ld\n", p->current - p->input);
+        fprintf(stderr, "Stack Size: %d\n", p->stack_size);
+        fprintf(stderr, "Stack Pointer: %d\n", p->stack_ptr);
         fprintf(stderr, "Stack: ");
-        for(int i = 0 ; i < p->stack_pointer ; i++) {
+        for(int i = 0 ; i < p->stack_ptr ; i++) {
                 int offset = i >> 3;
                 int mask = 1 << (i & 0x07);
                 fprintf(stderr, "%c", 
@@ -21,10 +20,10 @@ static void dump_p(jsonpg_parser p)
 
 }
 
-static jsonpg_type error(jsonpg_parser p, jsonpg_error_code code) 
+static jsonpg_type set_result_error(jsonpg_parser p, jsonpg_error_code code) 
 {
         p->result.error.code = code;
-        p->result.error.at = p->current - p->start;
+        p->result.error.at = p->current - p->input;
 
         dump_p(p);
 
@@ -33,27 +32,22 @@ static jsonpg_type error(jsonpg_parser p, jsonpg_error_code code)
 
 static jsonpg_type parse_error(jsonpg_parser p)
 {
-        return error(p, JSONPG_ERROR_PARSE);
+        return set_result_error(p, JSONPG_ERROR_PARSE);
 }
 
 static jsonpg_type number_error(jsonpg_parser p)
 {
-        return error(p, JSONPG_ERROR_NUMBER);
-}
-
-static jsonpg_type utf8_error(jsonpg_parser p)
-{
-        return error(p, JSONPG_ERROR_UTF8);
+        return set_result_error(p, JSONPG_ERROR_NUMBER);
 }
 
 static jsonpg_type alloc_error(jsonpg_parser p)
 {
-        return error(p, JSONPG_ERROR_ALLOC);
+        return set_result_error(p, JSONPG_ERROR_ALLOC);
 }
 
 static jsonpg_type file_read_error(jsonpg_parser p)
 {
-        return error(p, JSONPG_ERROR_FILE_READ);
+        return set_result_error(p, JSONPG_ERROR_FILE_READ);
 }
 
 

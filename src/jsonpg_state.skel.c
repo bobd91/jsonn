@@ -3,7 +3,35 @@
 // manual edits to jsonpg_state.c will be discarded
 
 #include <stdint.h>
-#include "jsonpg_parse.h"
+
+// Macros for code produced by gen_state
+#define if_config(X)            (p->flags & (X))
+#define accept_null(X)          ((X), JSONPG_NULL)
+#define accept_true(X)          ((X), JSONPG_TRUE)
+#define accept_false(X)         ((X), JSONPG_FALSE)
+#define push_token(X)           push_token(p, (X))
+#define pop_token()             pop_token(p)
+#define ifpeek_token(X)         ((X) == p->tokens[p->token_ptr - 1].type)
+#define swap_token(X)           (p->tokens[p->token_ptr - 1].type = (X))
+#define push_state(X)           (p->push_state = (X))
+#define pop_state()             (p->push_state)
+#define begin_object()          begin_object(p)
+#define end_object()            end_object(p)
+#define begin_array()           begin_array(p)
+#define end_array()             end_array(p)
+#define in_object()             (peek_stack(p) == STACK_OBJECT)
+#define in_array()              (peek_stack(p) == STACK_ARRAY)
+#define accept_integer(X)       accept_integer(p, (X))
+#define accept_real(X)          accept_real(p, (X))
+#define accept_string(X)        accept_string(p, (X))
+#define accept_key(X)           accept_key(p, (X))
+#define accept_sq_string(X)     accept_string(X)
+#define accept_sq_key(X)        accept_key(X)
+#define accept_nq_string(X)     accept_string(X)
+#define accept_nq_key(X)        accept_key(X)
+#define process_escape(X)       process_escape(p, (X))
+#define process_escape_chars(X) process_escape_chars(p, (X))
+#define process_escape_u(X)     process_escape_u(p, (X))
 
 uint8_t state_map[][256] = {
 <= map
@@ -13,10 +41,19 @@ uint8_t state_map[][256] = {
 typedef enum {
 <= enums
 ,
-        state_error = 0xFF
+        state_initial = JSONPG_STATE_INITIAL,
+        state_error   = JSONPG_STATE_ERROR
 } state;
 
-jsonpg_type jsonpg_next(jsonpg_parser p) {
+jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
+        if(p->state == state_initial) {
+                p->push_state = 
+                        (p->flags & JSONPG_FLAG_IS_OBJECT)
+                                ? state_w_key
+                                : state_w_value;
+                p->state = state_whitespace;
+        }
+
         while(1) {
                 while(p->current < p->last) {
                         state current_state = state_map[p->state][*p->current];
@@ -29,7 +66,7 @@ jsonpg_type jsonpg_next(jsonpg_parser p) {
                         jsonpg_type result = JSONPG_NONE;
                         state new_state = state_error;
                         int incr = 1;
-                        switch(current_state) {
+                        switch((int)current_state) {
 <= code
 
                         }
@@ -37,7 +74,7 @@ jsonpg_type jsonpg_next(jsonpg_parser p) {
                         if(new_state == state_error)
                                 return parse_error(p);
 
-                        parser->state = new_state;
+                        p->state = new_state;
                         p->current += incr;
 
                         if(result != JSONPG_NONE) {
@@ -47,7 +84,7 @@ jsonpg_type jsonpg_next(jsonpg_parser p) {
                 if(p->seen_eof)
                         return (p->token_ptr == 0)
                                ? JSONPG_EOF
-                               : jsonpg_parse_error(p);
+                               : parse_error(p);
                 else if(-1 == parser_read_next(p))
                         return file_read_error(p);
         }

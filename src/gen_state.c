@@ -900,12 +900,24 @@ void render_ifpeek(int not, builtin command, renderer code)
         }
 }
 
+void render_alloc_error(renderer code)
+{
+        render(code, " {");
+        render_level(code, 1);
+        render_indent(code, "result = alloc_error(p);");
+        render_indent(code, "break;");
+        render_level(code, -1);
+        render_indent(code, "}");
+}
+
 void render_builtin(int is_virtual, builtin command, renderer code)
 {
         char *arg = command->arg;
         switch(command->type) {
         case CMD_PUSH_STATE:
-                render_call("push_state(state_", arg, code);
+                render_indent(code, "push_state(state_");
+                render(code, arg);
+                render(code, ");");
                 break;
         case CMD_POP_STATE:
                 if(is_virtual)
@@ -916,12 +928,22 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 render_if(0, "if_config(config_", arg, ")", code);
                 break;
         case CMD_PUSH:
-                if(command->arg_info.token_type == TOKEN_MULTI) {
+                switch(command->arg_info.token_type) {
+                case(TOKEN_MULTI):
                         render_indent(code, "result = begin_");
                         render(code, arg);
                         render(code, "();");
-                } else {
-                        render_call("push_token(token_", arg, code);
+                        break;
+                case(TOKEN_PARTIAL):
+                        render_indent(code, "if(push_token(token_");
+                        render(code, arg);
+                        render(code, "))");
+                        render_alloc_error(code);
+                        break;
+                default:
+                        render_indent(code, "push_token(token_");
+                        render(code, arg);
+                        render(code, ");");
                 }
                 break;
         case CMD_IF_PEEK:
@@ -946,9 +968,10 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                         render(code, "();");
                         break;
                 case TOKEN_PARTIAL:
-                        render_indent(code, "process_");
+                        render_indent(code, "if(process_");
                         render(code, arg);
-                        render(code, "(pop_token());");
+                        render(code, "(pop_token()))");
+                        render_alloc_error(code);
                         break;
                 case TOKEN_MARKER:
                         render_indent(code, "pop_token();");

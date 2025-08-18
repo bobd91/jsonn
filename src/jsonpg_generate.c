@@ -8,9 +8,7 @@ static jsonpg_generator jsonpg_generator_new(
         if(!g)
                 return NULL;
         g->callbacks = callbacks;
-        g->ctx = ctx_size
-                ? (((void *)g) + sizeof(struct jsonpg_generator_s))
-                : NULL;
+        g->ctx = ((void *)g) + sizeof(struct jsonpg_generator_s);
 
         return g;
 }

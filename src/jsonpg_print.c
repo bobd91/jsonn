@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <math.h>
 
 // TODO error handling of writer errors
@@ -77,7 +78,7 @@ static int write_utf8(jsonpg_print_ctx ctx, uint8_t *bytes, size_t count)
 #ifdef JSONPG_VALIDATE_UTF8_OUT
                         int v = valid_utf8_sequence(s, count - (s - bytes));
                         if(!v)
-                                return 0;
+                                return -1;
                         s += v;
 #else
                         s++;
@@ -87,11 +88,11 @@ static int write_utf8(jsonpg_print_ctx ctx, uint8_t *bytes, size_t count)
                 if(print_p) {
                         // We have to print an escape sequence 
                         // first print stuff we skipped
-                        if(!ctx->write(ctx->write_ctx, last_s, s - last_s - 1))
-                                return 0;
+                        if(ctx->write(ctx->write_ctx, last_s, s - last_s - 1))
+                                return -1;
                         last_s = s;
-                        if(!ctx->write(ctx->write_ctx, (uint8_t *)print_p, print_w))
-                                return 0;
+                        if(ctx->write(ctx->write_ctx, (uint8_t *)print_p, print_w))
+                                return -1;
                 }
         }
         return ctx->write(ctx->write_ctx, last_s, s - last_s);
@@ -107,67 +108,85 @@ static int write_s(jsonpg_print_ctx ctx, char *s)
         return ctx->write(ctx->write_ctx, (uint8_t *)s, strlen(s));
 }
 
-static void print_indent(jsonpg_print_ctx ctx)
+static int print_indent(jsonpg_print_ctx ctx)
 {
         // Avoid leading newline
-        if(ctx->nl)
-                write_c(ctx, '\n');
-        else
+        if(ctx->nl) {
+                if(write_c(ctx, '\n'))
+                        return -1;
+        } else {
                 ctx->nl = 1;
+        }
 
         for(int i = 0 ; i < ctx->level ; i++)
-                write_s(ctx, "    ");
+                if(write_s(ctx, "    "))
+                        return -1;
+
+        return 0;
 }
 
-static void print_prefix(jsonpg_print_ctx ctx)
+static int print_prefix(jsonpg_print_ctx ctx)
 {
         if(!ctx->key) {
-                if(ctx->comma)
-                        write_c(ctx, ',');
-                if(ctx->pretty)
-                        print_indent(ctx);
+                if(ctx->comma && write_c(ctx, ','))
+                        return -1;
+                if(ctx->pretty && print_indent(ctx))
+                        return -1;
                 
         }
         ctx->comma = 1;
         ctx->key = 0;
+
+        return 0;
 }
 
-static void print_begin_prefix(jsonpg_print_ctx ctx)
+static int print_begin_prefix(jsonpg_print_ctx ctx)
 {
-        print_prefix(ctx);
+        if(print_prefix(ctx))
+                return -1;
         ctx->comma = 0;
         ctx->level++;
+
+        return 0;
 }
 
-static void print_end_prefix(jsonpg_print_ctx ctx)
+static int print_end_prefix(jsonpg_print_ctx ctx)
 {
         ctx->level--;
         if(ctx->comma) {
                 ctx->comma = 0; // no trailing comma
-                print_prefix(ctx);
+                if(print_prefix(ctx))
+                        return -1;
         }
         ctx->comma = 1;
+
+        return 0;
 }
 
-static void print_key_suffix(jsonpg_print_ctx ctx)
+static int print_key_suffix(jsonpg_print_ctx ctx)
 {
-        write_c(ctx, ':');
-        if(ctx->pretty)
-                write_c(ctx, ' ');
+        if(write_c(ctx, ':'))
+                return -1;
+        if(ctx->pretty && write_c(ctx, ' '))
+                return -1;
         ctx->key = 1;
+
+        return 0;
 }
 
 static int print_boolean(void *ctx, int is_true) 
 {
-        print_prefix(ctx);
-        write_s(ctx, is_true ? "true" : "false");
+        if(print_prefix(ctx)
+                        || write_s(ctx, is_true ? "true" : "false"))
+                return -1;
         return 0;
 }
 
 static int print_null(void *ctx) 
 {
-        print_prefix(ctx);
-        write_s(ctx, "null");
+        if(print_prefix(ctx)
+                        || write_s(ctx, "null"))
+                return -1;
         return 0;
 }
 
@@ -177,7 +196,7 @@ static int print_integer(void *ctx, int64_t l)
         int r = snprintf(number_buffer, sizeof(number_buffer), "%ld", l);
         if(r < 0) {
                 // TODO better errors
-                return 1;
+                return -1;
         }
 
         write_s(ctx, number_buffer);
@@ -188,13 +207,13 @@ static int print_real(void *ctx, double d)
 {
         if(!isnormal(d)) {
                 // TODO better errors
-                return 1;
+                return -1;
         }
         print_prefix(ctx);
         int r = snprintf(number_buffer, sizeof(number_buffer), "%16g", d);
         if(r < 0) {
                 // TODO better errors
-                return 1;
+                return -1;
         }
 
         // snprintf(%16g) writes at the bak of the buffer
@@ -202,67 +221,71 @@ static int print_real(void *ctx, double d)
         char *s = number_buffer;
         while(*s == ' ')
                 s++;
-        write_s(ctx, s);
+        if(write_s(ctx, s))
+                return -1;
 
         // real number without decimal point or exponent
         // add .0 at the end to preserve type at next JSON decode
         if(r == strcspn(number_buffer, ".e"))
-                write_s(ctx, ".0");
+                if(write_s(ctx, ".0"))
+                        return -1;
 
         return 0;
 }
 
 static int print_string(void *ctx, uint8_t *bytes, size_t length)
 {
-        print_prefix(ctx);
-        write_c(ctx, '"');
-        write_utf8(ctx, bytes, length); 
-        write_c(ctx, '"');
+        if(print_prefix(ctx)
+                        || write_c(ctx, '"')
+                        || write_utf8(ctx, bytes, length) 
+                        || write_c(ctx, '"'))
+                return -1;
         return 0;
 }
 
 static int print_key(void *ctx, uint8_t *bytes, size_t length) 
 {
-        print_prefix(ctx);
-        write_c(ctx, '"');
-        write_utf8(ctx, bytes, length);
-        write_c(ctx, '"');
-        print_key_suffix(ctx);  
+        if(print_prefix(ctx)
+                        || write_c(ctx, '"')
+                        || write_utf8(ctx, bytes, length)
+                        || write_c(ctx, '"')
+                        || print_key_suffix(ctx))
+                return -1;
         return 0;
 }
 
 static int print_begin_array(void *ctx)
 {
-        print_begin_prefix(ctx);
-        write_c(ctx, '[');
+        if(print_begin_prefix(ctx) || write_c(ctx, '['))
+                return -1;
         return 0;
 }
 
 static int print_end_array(void *ctx)
 {
-        print_end_prefix(ctx);
-        write_c(ctx, ']');
+        if(print_end_prefix(ctx) || write_c(ctx, ']'))
+               return -1;
         return 0;
 }
 
 static int print_begin_object(void *ctx) 
 {
-        print_begin_prefix(ctx);
-        write_c(ctx, '{');
+        if(print_begin_prefix(ctx) || write_c(ctx, '{'))
+                return -1;
         return 0;
 }
 
 static int print_end_object(void *ctx) 
 {
-        print_end_prefix(ctx);
-        write_c(ctx, '}');
+        if(print_end_prefix(ctx) || write_c(ctx, '}'))
+                return -1;
         return 0;
 }
 
 static int print_error(void *ctx, jsonpg_error_code code, int at)
 {
         fprintf(stderr, "\nError: %d [%d]", code, at);
-        return 1;
+        return -1;
 }
 
 
@@ -280,15 +303,15 @@ static jsonpg_callbacks printer_callbacks = {
         .error = print_error
 };
 
-jsonpg_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
+jsonpg_generator print_generator(write_fn write, void *write_ctx, int pretty)
 {
-        jsonpg_visitor v = jsonpg_visitor_new(
+        jsonpg_generator g = jsonpg_generator_new(
                         &printer_callbacks, 
                         sizeof(struct jsonpg_print_ctx_s));
-        if(!v)
+        if(!g)
                 return NULL;
 
-        jsonpg_print_ctx ctx = v->ctx;
+        jsonpg_print_ctx ctx = g->ctx;
 
         ctx->level = 0;
         ctx->comma = 0;
@@ -298,7 +321,7 @@ jsonpg_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
         ctx->write = write;
         ctx->write_ctx = write_ctx;
 
-        return v;
+        return g;
 }
 
 int write_fd(void *ctx, uint8_t *bytes, size_t count)
@@ -315,15 +338,15 @@ int write_fd(void *ctx, uint8_t *bytes, size_t count)
                 start += w;
                 size -= w;
         }
-        return 1;
+        return 0;
 }
 
-jsonpg_visitor jsonpg_file_printer(int fd, int pretty)
+jsonpg_generator jsonpg_file_printer(int fd, int pretty)
 {
-        return print_visitor(write_fd, INT_TO_CTX(fd), pretty);
+        return print_generator(write_fd, INT_TO_CTX(fd), pretty);
 }
 
-jsonpg_visitor jsonpg_stream_printer(FILE *stream, int pretty)
+jsonpg_generator jsonpg_stream_printer(FILE *stream, int pretty)
 {
         return jsonpg_file_printer(fileno(stream), pretty);
 }
@@ -331,14 +354,12 @@ jsonpg_visitor jsonpg_stream_printer(FILE *stream, int pretty)
 int write_buffer(void *ctx, uint8_t *bytes, size_t count)
 {
         str_buf sbuf = ctx;
-        return str_buf_append(sbuf, bytes, count)
-                ? 1
-                : -1;
+        return str_buf_append(sbuf, bytes, count);
 }
 
-jsonpg_visitor jsonpg_buffer_printer(str_buf sbuf, int pretty)
+jsonpg_generator jsonpg_buffer_printer(str_buf sbuf, int pretty)
 {
-        return print_visitor(write_buffer, sbuf, pretty);
+        return print_generator(write_buffer, sbuf, pretty);
 }
 
 

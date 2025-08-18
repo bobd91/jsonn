@@ -167,11 +167,11 @@
 },
 
 "exponent_prefix": {
-        "$exponent_prefix": "exponent+",
+        "$exponent_prefix": "exponent_x",
         "$0-9": "exponent"
 },
 
-"exponent+": {
+"exponent_x": {
         "$0-9": "exponent"
 },
 
@@ -185,10 +185,10 @@
 
 "string": {
         "\\": "start_escape",
-        "\"": [{"ifpop": "string"}, "after_value", "after_key"],
+        "\"": [{"ifpop": "string"}, "after_value", "end_key"],
         "0x20-0x21": "string",
-        "0x23-0x2E": "string",
-        "0x30-0x7F": "string",
+        "0x23-0x5B": "string",
+        "0x5D-0x7F": "string",
         "0xC2-0xDF": "continuation_1",
         "0xE0": "check_e0",
         "0xE1-0xEC": "continuation_2",
@@ -197,14 +197,18 @@
         "0xF0": "check_f0",
         "0xF1-0xF3": "continuation_3",
         "0xF4": "check_f4"
+},
+
+"end_key": {
+        "???": [{"ifpop": "key"}, "after_key"]
 },
 
 "sq_string": {
         "\\": "start_escape",
-        "'": [{"ifpop": "sq_string"}, "after_value", "after_key"],
+        "'": [{"ifpop": "sq_string"}, "after_value", "end_sq_key"],
         "0x20-0x26": "sq_string",
-        "0x28-0x2E": "sq_string",
-        "0x30-0x7F": "sq_string",
+        "0x28-0x5B": "sq_string",
+        "0x5D-0x7F": "sq_string",
         "0xC2-0xDF": "continuation_1",
         "0xE0": "check_e0",
         "0xE1-0xEC": "continuation_2",
@@ -215,11 +219,16 @@
         "0xF4": "check_f4"
 },
 
+"end_sq_key": {
+        "???": [{"ifpop": "sq_key"}, "after_key"]
+},
+
+
 "nq_string": {
         "\\": [{"ifconfig": "escape_characters"}, "start_escape_chars", "start_escape"],
-        " ": [{"ifpop": "nq_string"}, "after_value", "after_key"],
-        "0x21-0x2E": "nq_string",
-        "0x30-0x7F": "nq_string",
+        " ": [{"ifpop": "nq_string"}, "after_value", "end_nq_key"],
+        "0x21-0x5B": "nq_string",
+        "0x5D-0x7F": "nq_string",
         "0xC2-0xDF": "continuation_1",
         "0xE0": "check_e0",
         "0xE1-0xEC": "continuation_2",
@@ -228,6 +237,10 @@
         "0xF0": "check_f0",
         "0xF1-0xF3": "continuation_3",
         "0xF4": "check_f4"
+},
+
+"end_nq_key": {
+        "???": [{"ifpop": "nq_key"}, "after_key"]
 },
 
 "start_escape": {

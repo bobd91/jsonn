@@ -1,3 +1,6 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <stddef.h>
 
 #ifndef JSONPG_STACK_SIZE
 #define JSONPG_STACK_SIZE 1024
@@ -14,6 +17,7 @@
 #define JSONPG_FLAG_IS_ARRAY                   0x100
 
 typedef enum {
+        JSONPG_NONE,
         JSONPG_ROOT,
         JSONPG_FALSE,
         JSONPG_NULL,
@@ -21,14 +25,11 @@ typedef enum {
         JSONPG_INTEGER,
         JSONPG_REAL,
         JSONPG_STRING,
-        JSONPG_STRING_NEXT,
         JSONPG_KEY,
-        JSONPG_KEY_NEXT,
         JSONPG_BEGIN_ARRAY,
         JSONPG_END_ARRAY,
         JSONPG_BEGIN_OBJECT,
         JSONPG_END_OBJECT,
-        JSONPG_OPTIONAL,
         JSONPG_ERROR,
         JSONPG_EOF
 } jsonpg_type;
@@ -85,22 +86,18 @@ typedef struct {
         int (*error)(void *ctx, jsonpg_error_code code, int at);
 } jsonpg_callbacks;
 
-typedef struct jsonpg_generator_s {
-        jsonpg_callbacks *callbacks;
-        void *ctx;
-} *jsonpg_generator;
-
 typedef struct jsonpg_reader_s *jsonpg_reader;
 
 struct jsonpg_reader_s {
-        int (*read)(jsonpg_reader, void *, uint32_t);
+        ssize_t (*read)(jsonpg_reader, void *, size_t);
         void *ctx;
 };
 
-typedef struct jsonpg_print_ctx_s *jsonpg_print_ctx;
-
-struct jsonpg_parser_s;
+//struct jsonpg_parser_s;
 typedef struct jsonpg_parser_s *jsonpg_parser;
+//struct jsonpg_generator_s;
+typedef struct jsonpg_generator_s *jsonpg_generator;
+
 
 void jsonpg_set_allocators(
                 void *(*malloc)(size_t), 
@@ -110,8 +107,8 @@ void jsonpg_set_allocators(
 jsonpg_config jsonpg_config_get();
 void jsonpg_config_set(jsonpg_config *);
 
-jsonpg_parser jsonpg_new(/* nullable */ jsonpg_config *);
-void jsonpg_free(jsonpg_parser);
+jsonpg_parser jsonpg_parser_new(/* nullable */ jsonpg_config *);
+void jsonpg_parser_free(jsonpg_parser);
 
 jsonpg_type jsonpg_parse(
                 jsonpg_parser, 
@@ -139,7 +136,7 @@ jsonpg_type jsonpg_parse_reader(
                 jsonpg_reader,
                 jsonpg_generator);
 
-jsonpg_type jsonpg_next(jsonpg_parser);
+jsonpg_type jsonpg_parse_next(jsonpg_parser);
 
-jsonpg_value jsonpg_result(jsonpg_parser);
+jsonpg_value jsonpg_parse_result(jsonpg_parser);
 
