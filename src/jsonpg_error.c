@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-static void dump_p(jpg_parser p)
+static void dump_p(jsonpg_parser p)
 {
         fprintf(stderr, "Parser Error:\n");
         fprintf(stderr, "Error: %d\n", p->result.error.code);
@@ -21,39 +21,39 @@ static void dump_p(jpg_parser p)
 
 }
 
-static jpg_type error(jpg_parser p, jpg_error_code code) 
+static jsonpg_type error(jsonpg_parser p, jsonpg_error_code code) 
 {
         p->result.error.code = code;
         p->result.error.at = p->current - p->start;
 
         dump_p(p);
 
-        return JPG_ERROR;
+        return JSONPG_ERROR;
 }
 
-static jpg_type parse_error(jpg_parser p)
+static jsonpg_type parse_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_PARSE);
+        return error(p, JSONPG_ERROR_PARSE);
 }
 
-static jpg_type number_error(jpg_parser p)
+static jsonpg_type number_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_NUMBER);
+        return error(p, JSONPG_ERROR_NUMBER);
 }
 
-static jpg_type utf8_error(jpg_parser p)
+static jsonpg_type utf8_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_UTF8);
+        return error(p, JSONPG_ERROR_UTF8);
 }
 
-static jpg_type alloc_error(jpg_parser p)
+static jsonpg_type alloc_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_ALLOC);
+        return error(p, JSONPG_ERROR_ALLOC);
 }
 
-static jpg_type file_read_error(jpg_parser p)
+static jsonpg_type file_read_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_FILE_READ);
+        return error(p, JSONPG_ERROR_FILE_READ);
 }
 
 

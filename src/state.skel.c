@@ -16,7 +16,7 @@ typedef enum {
         state_error = 0xFF
 } state;
 
-jpg_type jpg_next(jpg_parser p) {
+jsonpg_type jsonpg_next(jsonpg_parser p) {
         while(1) {
                 while(p->current < p->last) {
                         state current_state = state_map[p->state][*p->current];
@@ -26,7 +26,7 @@ jpg_type jpg_next(jpg_parser p) {
                                 continue;
                         }
 
-                        jpg_type result = JPG_NONE;
+                        jsonpg_type result = JSONPG_NONE;
                         state new_state = state_error;
                         int incr = 1;
                         switch(current_state) {
@@ -35,19 +35,19 @@ jpg_type jpg_next(jpg_parser p) {
                         }
 
                         if(new_state == state_error)
-                                return jpg_parse_error(p);
+                                return jsonpg_parse_error(p);
 
                         parser->state = new_state;
                         p->current += incr;
 
-                        if(result != JPG_NONE) {
+                        if(result != JSONPG_NONE) {
                                 return result;
                         }
                 }
                 if(p->seen_eof)
                         return (p->token_ptr == 0)
-                               ? JPG_EOF
-                               : jpg_parse_error(p);
+                               ? JSONPG_EOF
+                               : jsonpg_parse_error(p);
                 else
                         parser_read_next(p);
         }

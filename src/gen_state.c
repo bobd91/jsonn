@@ -5,6 +5,8 @@
 
 #include "unity.c"
 
+#define SKELETON_FILE "jsonpg_state.skel.c"
+#define OUTPUT_FILE   "jsonpg_state.c"
 
 typedef struct state_s *state;
 typedef struct class_s *class;
@@ -233,7 +235,7 @@ void fail(char *fmt, ...)
 void *fmalloc(size_t size) {
         void *p = malloc(size);
         if(!p)
-                fail("Failed to allocate %d", size);
+                fail("Failed to allocate %d bytes", size);
         return p;
 }
 
@@ -278,7 +280,7 @@ void append_class(state states, class c)
         class_list last = next;
         while(next) {
                 if(str_equal(next->class->name, c->name))
-                        fail("Duplicate class name: %s", c->name);
+                        fail("Duplicate class name '%s'", c->name);
                 last = next;
                 next = next->next;
         }
@@ -300,7 +302,7 @@ void append_rule(state states, rule r)
         rule_list last = next;
         while(next) {
                 if(str_equal(next->rule->name, r->name))
-                        fail("Duplicate rule name: %s", r->name);
+                        fail("Duplicate rule name '%s'", r->name);
                 last = next;
                 next = next->next;
         }
@@ -330,7 +332,8 @@ builtin parse_builtin(jsonn_parser p)
                 while(JSONN_STRING == (type = jsonn_parse_next(p))) {
                         char *r = result_str(p);
                         if(0 != flag)
-                                // early rendering makes life much easier
+                                // a bit ugly but early rendering
+                                // makes life much easier
                                 str_buf_append_chars(sbuf, " | config_");
                         str_buf_append_chars(sbuf, r); 
                         flag |= map_lookup(configs, r);
@@ -431,7 +434,7 @@ match parse_match(jsonn_parser p)
         case 9:
                 if(2 == sscanf(chars, "0x%02X-0x%02X", &r1, &r2)) {
                         if(r1 >= r2)
-                                fail("Invalid range: %s", chars);
+                                fail("Invalid range '%s'", chars);
                         m->type = MATCH_RANGE;
                         m->match.range.start = r1;
                         m->match.range.end = r2;
@@ -447,7 +450,7 @@ match parse_match(jsonn_parser p)
                 } else if(str_equal("???", chars)) {
                         m->type = MATCH_VIRTUAL;
                 } else {
-                        fail("Invalid match specification: %s", chars);
+                        fail("Invalid match specification '%s'", chars);
                 }
         }
         m->action = parse_action(p);
@@ -489,7 +492,7 @@ void parse_class_chars(class c, jsonn_parser p)
         int i = 0;
         while(type == JSONN_STRING) {
                 if(i >= MAX_CHARS_IN_CLASS)
-                        fail("Too many characters in character class: %s", c->name);
+                        fail("Too many characters in character class '%s'", c->name);
                 c->chars[i++] = result_char(p);
                 type = jsonn_parse_next(p);
         }
@@ -558,6 +561,7 @@ rule find_rule(state states, char *name)
         }
         return NULL;
 }
+
 int validate_builtin(builtin b)
 {
         if(b->type == -1) {
@@ -603,7 +607,7 @@ int validate_action(state states, action a)
                         char *name = a->action.rule_name;
                         rule r = find_rule(states, name);
                         if(!r) {
-                                warn("Cannot find rule %s", name);
+                                warn("Unknown rule '%s'", name);
                                 res = 0;
                         }
                         a->type = ACTION_RULE;
@@ -622,7 +626,7 @@ int validate_match(state states, match m)
                 char *name = m->match.class_name;
                 class c = find_class(states, name);
                 if(!c) {
-                        warn("Cannot find class %s", name);
+                        warn("Unknown class '%s'", name);
                         res = 0;
                 }
                 m->type = MATCH_CLASS;
@@ -821,7 +825,8 @@ void write_renderer(FILE *stream, renderer r)
 {
         uint8_t *str;
         int len = str_buf_content(r->sbuf, &str);
-        fprintf(stream, "%.*s", len, (char *)str);
+        // drop leading newline
+        fprintf(stream, "%.*s", len - 1, 1 + (char *)str);
 }
 
 void render_x(renderer r, uint8_t x)
@@ -834,7 +839,7 @@ void render_x(renderer r, uint8_t x)
 void render_enum(rule r, renderer enums, int first) 
 {
         if(r->id < 0)
-                // will miss first processing if first entry is virtual,
+                // will mess up first processing if first entry is virtual,
                 // which it isn't at the moment (phew)
                 return;
 
@@ -993,7 +998,7 @@ void render_action(int is_virtual, action a, renderer code)
                         }
                         break;
                 case ACTION_RULE_NAME:
-                        fail("Rule %s not validated", a->action.rule_name);
+                        fail("Rule '%s' not validated", a->action.rule_name);
         }
 }
 
@@ -1081,7 +1086,7 @@ void render_action_comment(int is_virtual, rule r, match m, renderer code)
                         render(code, "???");
                         break;
                 case MATCH_CLASS_NAME:
-                        fail("Class %s not resolved", m->match.class_name);
+                        fail("Class '%s' not resolved", m->match.class_name);
 
         }
 }
@@ -1116,7 +1121,7 @@ uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
                         }
                         break;
                 case ACTION_RULE_NAME:
-                        fail("Rule %s not validated", a->action.rule_name);
+                        fail("Rule '%s' not validated", a->action.rule_name);
         }
 
 
@@ -1192,11 +1197,11 @@ void render_rule(rule r, renderer map, renderer enums, renderer code, int first)
         render_map_values(r, rule_states, map, first);
 }
 
-renderer renderer_new()
+renderer renderer_new(int level)
 {
         renderer r = fmalloc(sizeof(struct renderer_s));
-        r->level = 0;
-        r->startlevel = 0;
+        r->level = level;
+        r->startlevel = level;
         r->sbuf = str_buf_new();
         return r;
 }
@@ -1226,13 +1231,9 @@ void merge_renderer(FILE *in, FILE *out, renderer r, char *tag)
 void render_state(state states)
 {
         rule_list rl = states->rules;
-        renderer map = renderer_new();
-        renderer enums = renderer_new();
-        renderer code = renderer_new();
-
-        render_startlevel(map, 1);
-        render_startlevel(enums, 1);
-        render_startlevel(code, CODE_START_LEVEL);
+        renderer map = renderer_new(1);
+        renderer enums = renderer_new(1);
+        renderer code = renderer_new(CODE_START_LEVEL);
 
         int first = 1;
         while(rl) {
@@ -1241,13 +1242,13 @@ void render_state(state states)
                 rl = rl->next;
         }
 
-        FILE *skelfile = fopen("jpg_state.skel.c", "r");
+        FILE *skelfile = fopen(SKELETON_FILE, "r");
         if(!skelfile)
-                fail("Failed to open state.skel.c");
+                fail("Failed to open %s", SKELETON_FILE);
 
-        FILE *cfile = fopen("jpg_state.c", "w");
+        FILE *cfile = fopen(OUTPUT_FILE, "w");
         if(!cfile)
-                fail("Failed to create state.c");
+                fail("Failed to create %s", OUTPUT_FILE);
 
         merge_renderer(skelfile, cfile, map, "<= map");
         merge_renderer(skelfile, cfile, enums, "<= enums");

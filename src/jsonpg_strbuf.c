@@ -4,22 +4,22 @@ typedef struct str_buf_s *str_buf;
 
 struct str_buf_s {
         uint8_t *bytes;
-        size_t count;
-        size_t size;    
+        uint32_t count;
+        uint32_t size;    
 };
 
 str_buf str_buf_new()
 {
-        str_buf sbuf = jpg_alloc(sizeof(struct str_buf_s));
+        str_buf sbuf = jsonpg_alloc(sizeof(struct str_buf_s));
         if(!sbuf)
                 return NULL;
-        sbuf->bytes = jpg_alloc(JPG_BLOCK_SIZE);
+        sbuf->bytes = jsonpg_alloc(JSONPG_BLOCK_SIZE);
         if(!sbuf->bytes) {
-                jpg_dealloc(sbuf);
+                jsonpg_dealloc(sbuf);
                 return NULL;
         }
         sbuf->count = 0;
-        sbuf->size = JPG_BLOCK_SIZE;
+        sbuf->size = JSONPG_BLOCK_SIZE;
 
         return sbuf;
 }
@@ -28,8 +28,8 @@ void str_buf_free(str_buf sbuf)
 {
         assert(sbuf);
 
-        jpg_dealloc(sbuf->bytes);
-        jpg_dealloc(sbuf);
+        jsonpg_dealloc(sbuf->bytes);
+        jsonpg_dealloc(sbuf);
 }
 
 str_buf str_buf_append(str_buf sbuf, uint8_t *bytes, size_t count)
@@ -42,7 +42,7 @@ str_buf str_buf_append(str_buf sbuf, uint8_t *bytes, size_t count)
                 do {
                         sbuf->size <<= 1;
                 } while(new_count > sbuf->size);
-                uint8_t *b = jpg_realloc(sbuf->bytes, sbuf->size);
+                uint8_t *b = jsonpg_realloc(sbuf->bytes, sbuf->size);
                 if(!b)
                         return NULL;
 

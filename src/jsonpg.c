@@ -1,98 +1,6 @@
 
 // TODO function naming is a mess!
-#ifndef JPG_STACK_SIZE
-#define JPG_STACK_SIZE 1024
-#endif
-
-typedef enum {
-        JPG_ROOT,
-        JPG_FALSE,
-        JPG_NULL,
-        JPG_TRUE,
-        JPG_INTEGER,
-        JPG_REAL,
-        JPG_STRING,
-        JPG_STRING_NEXT,
-        JPG_KEY,
-        JPG_KEY_NEXT,
-        JPG_BEGIN_ARRAY,
-        JPG_END_ARRAY,
-        JPG_BEGIN_OBJECT,
-        JPG_END_OBJECT,
-        JPG_OPTIONAL,
-        JPG_ERROR,
-        JPG_EOF
-} jpg_type;
-
-typedef enum {
-        JPG_ERROR_NONE = 0,
-        JPG_ERROR_CONFIG,
-        JPG_ERROR_ALLOC,
-        JPG_ERROR_PARSE,
-        JPG_ERROR_NUMBER,
-        JPG_ERROR_UTF8,
-        JPG_ERROR_STACKUNDERFLOW,
-        JPG_ERROR_STACKOVERFLOW,
-        JPG_ERROR_FILE_READ
-} jpg_error_code;
-
-typedef struct {
-        uint8_t *bytes;
-        size_t length;
-} jpg_string_val;
-
-typedef union {
-        uint64_t integer;
-        double real;
-} jpg_number_val;
-
-typedef struct {
-        jpg_error_code code;
-        size_t at;
-} jpg_error_val;
-
-typedef union {
-        jpg_number_val number;
-        jpg_string_val string;
-        jpg_error_val error;
-} jpg_value;
-
-struct jpg_parser_s;
-typedef struct jpg_parser_s *jpg_parser;
-
-typedef struct {
-        size_t stack_size;
-        int16_t flags;
-} jpg_config;
-
-typedef struct jpg_node_s *jpg_node;
-struct jpg_node_s {
-        jpg_value is;
-        jpg_type type;
-};
-
-typedef struct {
-        int (*boolean)(void *ctx, int is_true);
-        int (*null)(void *ctx);
-        int (*integer)(void *ctx, int64_t integer);
-        int (*real)(void *ctx, double real);
-        int (*string)(void *ctx, uint8_t *bytes, size_t length);
-        int (*key)(void *ctx, uint8_t *bytes , size_t length);
-        int (*begin_array)(void *ctx);
-        int (*end_array)(void *ctx);
-        int (*begin_object)(void *ctx);
-        int (*end_object)(void *ctx);
-        int (*error)(void *ctx, jpg_error_code code, int at);
-} jpg_callbacks;
-
-typedef struct jpg_visitor_s {
-        jpg_callbacks *callbacks;
-        void *ctx;
-} *jpg_visitor;
-
-typedef struct jpg_print_ctx_s *jpg_print_ctx;
-
-static void dump_p(jpg_parser p)
+static void dump_p(jsonpg_parser p)
 {
         fprintf(stderr, "Parser Error:\n");
         fprintf(stderr, "Error: %d\n", p->result.error.code);
@@ -101,9 +9,9 @@ static void dump_p(jpg_parser p)
         fprintf(stderr, "Input Processed: %ld\n", p->current - p->start);
         fprintf(stderr, "Next State: %d\n", p->next);
         fprintf(stderr, "Stack Size: %ld\n", p->stack_size);
-        fprintf(stderr, "Stack Pointer: %ld\n", p->stack_pointer);
+        fprintf(stderr, "Stack Pointer: %ld\n", p->stack_ptr);
         fprintf(stderr, "Stack: ");
-        for(int i = 0 ; i < p->stack_pointer ; i++) {
+        for(int i = 0 ; i < p->stack_ptr ; i++) {
                 int offset = i >> 3;
                 int mask = 1 << (i & 0x07);
                 fprintf(stderr, "%c", 
@@ -113,92 +21,92 @@ static void dump_p(jpg_parser p)
 
 }
 
-static jpg_type error(jpg_parser p, jpg_error_code code) 
+static jsonpg_type error(jsonpg_parser p, jsonpg_error_code code) 
 {
         p->result.error.code = code;
         p->result.error.at = p->current - p->start;
 
         dump_p(p);
 
-        return JPG_ERROR;
+        return JSONPG_ERROR;
 }
 
-static jpg_type parse_error(jpg_parser p)
+static jsonpg_type parse_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_PARSE);
+        return error(p, JSONPG_ERROR_PARSE);
 }
 
-static jpg_type number_error(jpg_parser p)
+static jsonpg_type number_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_NUMBER);
+        return error(p, JSONPG_ERROR_NUMBER);
 }
 
-static jpg_type utf8_error(jpg_parser p)
+static jsonpg_type utf8_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_UTF8);
+        return error(p, JSONPG_ERROR_UTF8);
 }
 
-static jpg_type alloc_error(jpg_parser p)
+static jsonpg_type alloc_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_ALLOC);
+        return error(p, JSONPG_ERROR_ALLOC);
 }
 
-static jpg_type file_read_error(jpg_parser p)
+static jsonpg_type file_read_error(jsonpg_parser p)
 {
-        return error(p, JPG_ERROR_FILE_READ);
+        return error(p, JSONPG_ERROR_FILE_READ);
 }
 
 
-void jpg_set_allocators(
+void jsonpg_set_allocators(
                 void *(*malloc)(size_t), 
                 void *(*realloc)(void *, size_t),
                 void (*free)(void *));
 
-jpg_config jpg_config_get();
-void jpg_config_set(jpg_config *config);
+jsonpg_config jsonpg_config_get();
+void jsonpg_config_set(jsonpg_config *config);
 
-jpg_parser jpg_new(/* nullable */ jpg_config *config);
-void jpg_free(jpg_parser p);
+jsonpg_parser jsonpg_new(/* nullable */ jsonpg_config *config);
+void jsonpg_free(jsonpg_parser p);
 
-jpg_type jpg_parse(
-                jpg_parser parser, 
+jsonpg_type jsonpg_parse(
+                jsonpg_parser parser, 
                 uint8_t *json, 
                 size_t length,
-                jpg_visitor visitor);
+                jsonpg_visitor visitor);
 
-jpg_type jpg_parse_fd(
-                jpg_parser parser,
+jsonpg_type jsonpg_parse_fd(
+                jsonpg_parser parser,
                 int fd,
-                jpg_visitor visitor);
+                jsonpg_visitor visitor);
 
-jpg_type jpg_parse_stream(
-                jpg_parser parser,
+jsonpg_type jsonpg_parse_stream(
+                jsonpg_parser parser,
                 FILE *stream,
-                jpg_visitor visitor);
+                jsonpg_visitor visitor);
 
-void jpg_parse_start(jpg_parser parser, uint8_t *json, size_t length);
-jpg_type jpg_parse_next(jpg_parser parser);
+void jsonpg_parse_start(jsonpg_parser parser, uint8_t *json, size_t length);
+jsonpg_type jsonpg_parse_next(jsonpg_parser parser);
 
-jpg_value jpg_parse_result(jpg_parser);
+jsonpg_value jsonpg_parse_result(jsonpg_parser);
 
-void jpg_set_allocators(
+void jsonpg_set_allocators(
                 void *(*malloc)(size_t),
                 void *(*realloc)(void *, size_t),
                 void (*free)(void *))
 {
-        jpg_alloc = malloc;
-        jpg_realloc = realloc;
-        jpg_dealloc = free;
+        jsonpg_alloc = malloc;
+        jsonpg_realloc = realloc;
+        jsonpg_dealloc = free;
 }
 
-jpg_parser jpg_new(jpg_config *config)
+jsonpg_parser jsonpg_new(jsonpg_config *config)
 {
-        jpg_config c = config_select(config); 
+        jsonpg_config c = config_select(config); 
 
-        size_t struct_bytes = sizeof(struct jpg_parser_s);
+        size_t struct_bytes = sizeof(struct jsonpg_parser_s);
         // 1-8 => 1, 9-16 => 2, etc
         size_t stack_bytes = (c.stack_size + 7) / 8;
-        jpg_parser p = jpg_alloc(struct_bytes + stack_bytes);
+        jsonpg_parser p = jsonpg_alloc(struct_bytes + stack_bytes);
         if(p) {
                 p->stack_size = c.stack_size;
                 p->stack = (uint8_t *)(((void *)p) + struct_bytes);
@@ -208,51 +116,51 @@ jpg_parser jpg_new(jpg_config *config)
         return p;
 }
 
-void jpg_free(jpg_parser p) 
+void jsonpg_free(jsonpg_parser p) 
 {
-        if(p) jpg_dealloc(p);
+        if(p) jsonpg_dealloc(p);
 }
 
-static jpg_type parse_visit(
-                jpg_parser p,
-                jpg_visitor visitor)
+static jsonpg_type parse_visit(
+                jsonpg_parser p,
+                jsonpg_visitor visitor)
 {
-        jpg_type type;
+        jsonpg_type type;
         int abort = 0;
-        while(!abort && JPG_EOF != (type = jpg_next(p))) {
+        while(!abort && JSONPG_EOF != (type = jsonpg_next(p))) {
                 abort = visit(visitor, type, &p->result);
         }
 
         return type;
 }
 
-jpg_type jpg_parse(
-                jpg_parser p, 
+jsonpg_type jsonpg_parse(
+                jsonpg_parser p, 
                 uint8_t *json, 
                 size_t length,
-                jpg_visitor visitor)
+                jsonpg_visitor visitor)
 {
-        p->next = jpg_init_next(p);
+        p->next = jsonpg_init_next(p);
         p->start = p->current = p->write = json;
         p->last = json + length;
         p->seen_eof = 1;
         *p->last = '\0';
-        p->stack_pointer = 0;
+        p->stack_ptr = 0;
 
         // Skip leading byte order mark
         p->current += bom_bytes(p);
 
         return visitor
                 ? parse_visit(p, visitor)
-                : JPG_ROOT;
+                : JSONPG_ROOT;
 }
 static void *(*jsonn_alloc)(size_t) = malloc;
 static void *(*jsonn_realloc)(void *, size_t) = realloc;
 static void (*jsonn_dealloc)(void *) = free;
 
-jpg_type jpg_parse_fd(jpg_parser p, int fd, jpg_visitor visitor)
+jsonpg_type jsonpg_parse_fd(jsonpg_parser p, int fd, jsonpg_visitor visitor)
 {
-        p->next = jpg_init_next(p);
+        p->next = jsonpg_init_next(p);
         p->fd = fd;
         p->buffer_root = buffer_block_new();
         if(!p->buffer_root)
@@ -267,53 +175,39 @@ jpg_type jpg_parse_fd(jpg_parser p, int fd, jpg_visitor visitor)
         p->start = p->current = buff->start;
         p->last = buff->last;
         *p->last = '\0';
-        p->stack_pointer = 0;
+        p->stack_ptr = 0;
 
         // Skip leading byte order mark
         p->current += bom_bytes(p);
 
         return visitor
                 ? parse_visit(p, visitor)
-                : JPG_ROOT;
+                : JSONPG_ROOT;
 }
 
-jpg_type jpg_parse_stream(jpg_parser p, FILE *stream, jpg_visitor visitor)
+jsonpg_type jsonpg_parse_stream(jsonpg_parser p, FILE *stream, jsonpg_visitor visitor)
 {
-        return jpg_parse_fd(p, fileno(stream), visitor);
+        return jsonpg_parse_fd(p, fileno(stream), visitor);
 }
 
-void jpg_parse_start(
-                jpg_parser p,
+void jsonpg_parse_start(
+                jsonpg_parser p,
                 uint8_t *json,
                 size_t length)
 {
-        jpg_parse(p, json, length, NULL);
+        jsonpg_parse(p, json, length, NULL);
 }
 
-jpg_type jpg_parse_next(jpg_parser p)
+jsonpg_type jsonpg_parse_next(jsonpg_parser p)
 {
-        return jpg_next(p);
+        return jsonpg_next(p);
 }
 
-jpg_value jpg_parse_result(jpg_parser p)
+jsonpg_value jsonpg_parse_result(jsonpg_parser p)
 {
         return p->result;
 }
 
-struct jpg_parser_s {
-        uint8_t *start;   
-        uint8_t *current;
-        uint8_t *last;
-        str_buf wbuf;
-        uint16_t flags;
-        jpg_value result;
-        int seen_eof;
-        size_t stack_size;
-        size_t stack_pointer;
-        uint8_t *stack;
-};
-
-typedef struct jpg_parser_s *jpg_parser;
 
 
 #define p_write(X, Y, Z)  (str_buf_append((X)->wbuf, (Y), (Z))
@@ -346,9 +240,9 @@ typedef struct jpg_parser_s *jpg_parser;
 
 // Macros for code produced by gen_state
 #define if_config(X)            (p->flag & (X))
-#define accept_null(X)          ((X), JPG_NULL)
-#define accept_true(X)          ((X), JPG_TRUE)
-#define accept_false(X)         ((X), JPG_FALSE)
+#define accept_null(X)          ((X), JSONPG_NULL)
+#define accept_true(X)          ((X), JSONPG_TRUE)
+#define accept_false(X)         ((X), JSONPG_FALSE)
 #define push_token(X)           p_push_token(p, (X))
 #define pop_token()             p_pop_token(p)
 #define ifpeek_token(X)         ((X) == p->tokens[p->token_ptr].type)
@@ -359,8 +253,8 @@ typedef struct jpg_parser_s *jpg_parser;
 #define end_object()            p_end_object(p)
 #define begin_array()           p_begin_array(p)
 #define end_array()             p_end_array(p)
-#define in_object()             (p->stack_top == JPG_STACK_OBJECT)
-#define in_array()              (p->stack_top == JPG_STACK_ARRAY)
+#define in_object()             (p->stack_top == JSONPG_STACK_OBJECT)
+#define in_array()              (p->stack_top == JSONPG_STACK_ARRAY)
 #define accept_integer(X)       p_accept_integer(p, (X))
 #define accept_real(X)          p_accept_real(p, (X))
 #define accept_string(X)        p_accept_string(p, (X))
@@ -373,23 +267,7 @@ typedef struct jpg_parser_s *jpg_parser;
 #define process_escape_chars(X) p_process_escape_chars(p, (X))
 #define process_escape_u(X)     p_process_escape_u(p, (X))
 
-typedef enum {
-        token_null,
-        token_true,
-        token_false,
-        token_string,
-        token_key,
-        token_sq_string,
-        token_sq_key,
-        token_nq_string,
-        token_nq_key,
-        token_integer,
-        token_real,
-        token_escape,
-        token_escape_chars,
-        token_escape_u,
-        token_surrogate
-} token_type;
+
 
 #define TOKEN_INFO_DEFAULT      0x00
 #define TOKEN_INFO_IS_STRING    0x01
@@ -418,21 +296,17 @@ static int token_type_info[] {
 };
 
 typedef enum {
-        config_comments = JPG_FLAG_COMMENTS,
-        config_trailing_commas = JPG_FLAG_TRAILING_COMMAS,
-        config_single_quotes = JPG_FLAG_CONFIG_SINGLE_QUOTES;
-        config_unquoted_keys = JPG_FLAG_UNQUOTED_KEYS;
-        config_unquoted_strings = JPG_FLAG_UNQUOTED_STRINGS;
-        config_escape_characters = JPG_FLAG_ESCAPE_CHARACTERS;
-        config_optional_commas = JPG_FLAG_OPTIONAL_COMMAS;
+        config_comments = JSONPG_FLAG_COMMENTS,
+        config_trailing_commas = JSONPG_FLAG_TRAILING_COMMAS,
+        config_single_quotes = JSONPG_FLAG_CONFIG_SINGLE_QUOTES;
+        config_unquoted_keys = JSONPG_FLAG_UNQUOTED_KEYS;
+        config_unquoted_strings = JSONPG_FLAG_UNQUOTED_STRINGS;
+        config_escape_characters = JSONPG_FLAG_ESCAPE_CHARACTERS;
+        config_optional_commas = JSONPG_FLAG_OPTIONAL_COMMAS;
 } config_flags;
 
-typedef struct token_s {
-        token_type type;
-        uint8_t *pos;
-} *token;
 
-static void p_push_token(jpg_parser p, token_type type)
+static void p_push_token(jsonpg_parser p, token_type type)
 {
         assert(p->token_ptr < p->token_ptr_max && "Token stack overflow");
 
@@ -456,7 +330,7 @@ static void p_push_token(jpg_parser p, token_type type)
         }
 }
 
-static token p_pop_token(jpg_parser p)
+static token p_pop_token(jsonpg_parser p)
 {
         assert(p->token_ptr >= 0 && "Token stack underflow");
         
@@ -464,77 +338,77 @@ static token p_pop_token(jpg_parser p)
 }
 
 
-static int pop_stack(jpg_parser p) 
+static int pop_stack(jsonpg_parser p) 
 {
-        if(p->stack_pointer == p->stack_pointer_min)
+        if(p->stack_ptr <= p->stack_ptr_min)
                 return 0;
-        size_t sp = --p->stack_pointer;
+        size_t sp = --p->stack_ptr;
         // pop state off stack
         p->stack_top = 0x01 & p->stack[sp >> 3] >> (sp & 0x07);
 
         return 1;
 }
 
-static int push_stack(jpg_parser p, stack_type type) 
+static int push_stack(jsonpg_parser p, stack_type type) 
 {
 
-        size_t sp = p->stack_pointer;
+        size_t sp = p->stack_ptr;
         if(sp >= p->stack_size) 
                 return 0;
         int offset = sp >> 3;
         int mask = 1 << (sp & 0x07);
         
-        if(type == JPG_STACK_ARRAY)
+        if(type == JSONPG_STACK_ARRAY)
                 p->stack[offset] |= mask;
         else 
                 p->stack[offset] &= ~mask;
-        p->stack_pointer++;
+        p->stack_ptr++;
         p->stack_top = type;
         return 1;
 }
 
-static void p_begin_object(jpg_parser p)
+static void p_begin_object(jsonpg_parser p)
 {
-        return(push_stack(p, JPG_STACK_OBJECT))
-                ? JPG_BEGIN_OBJECT
-                : jpg_error(p, JSG_ERROR_STACKOVERFLOW);
+        return(push_stack(p, JSONPG_STACK_OBJECT))
+                ? JSONPG_BEGIN_OBJECT
+                : jsonpg_error(p, JSG_ERROR_STACKOVERFLOW);
 }
 
-static void p_end_object(jpg_parser p)
-{
-        return (pop_stack(p))
-                ? JPG_END_OBJECT
-                : jpg_error(p, JPG_ERROR_STACKUNDERFLOW);
-}
-
-static void p_begin_array(jpg_parser p)
-{
-        return(push_stack(p, JPG_STACK_ARRAY))
-                ? JPG_BEGIN_ARRAY
-                : jpg_error(p, JSG_ERROR_STACKOVERFLOW);
-}
-
-static void p_end_array(jpg_parser p)
+static void p_end_object(jsonpg_parser p)
 {
         return (pop_stack(p))
-                ? JPG_END_ARRAY
-                : jpg_error(p, JPG_ERROR_STACKUNDERFLOW);
+                ? JSONPG_END_OBJECT
+                : jsonpg_error(p, JSONPG_ERROR_STACKUNDERFLOW);
 }
 
-static jpg_type p_accept_integer(jpg_parser p, token t)
+static void p_begin_array(jsonpg_parser p)
+{
+        return(push_stack(p, JSONPG_STACK_ARRAY))
+                ? JSONPG_BEGIN_ARRAY
+                : jsonpg_error(p, JSG_ERROR_STACKOVERFLOW);
+}
+
+static void p_end_array(jsonpg_parser p)
+{
+        return (pop_stack(p))
+                ? JSONPG_END_ARRAY
+                : jsonpg_error(p, JSONPG_ERROR_STACKUNDERFLOW);
+}
+
+static jsonpg_type p_accept_integer(jsonpg_parser p, token t)
 {
         errno = 0;
         long integer = strtol((char *)t->pos, NULL, 10);
-        if(errno) return jpg_number_error(p, token);
+        if(errno) return jsonpg_number_error(p, token);
         p->result.number.integer = integer;
-        return JPG_INTEGER;
+        return JSONPG_INTEGER;
 }
 
-static jpg_type p_accept_real(jpg_parser p, token t)
+static jsonpg_type p_accept_real(jsonpg_parser p, token t)
 {
         errno = 0;
         long double ldreal = strtold((char *)t->pos, NULL);
-        if(errno) return jpg_number_error(p, token);
+        if(errno) return jsonpg_number_error(p, token);
 
         // precision problems
         // if we can go long double -> double -> long double
@@ -542,13 +416,13 @@ static jpg_type p_accept_real(jpg_parser p, token t)
         // the number in a double without loss of precision
         double real = (double)ldreal;
         if(ldreal != real)
-                return jpg_number_error(p, token);
+                return jsonpg_number_error(p, token);
 
         p->result.number.real = real;
-        return JPG_REAL;
+        return JSONPG_REAL;
 }
 
-static void set_string_value(jpg_parser p, token t)
+static void set_string_value(jsonpg_parser p, token t)
 {
         if(p->wbuf->count) {
                 p_write(p, t->pos, p->current - t->pos);
@@ -559,19 +433,19 @@ static void set_string_value(jpg_parser p, token t)
         }
 }
 
-static jpg_type p_accept_string(jpg_parser p, token t)
+static jsonpg_type p_accept_string(jsonpg_parser p, token t)
 {
         set_string_value(p, t);
-        return JPG_STRING;
+        return JSONPG_STRING;
 }
 
-static jpg_type p_accept_key(jpg_parser p, token t)
+static jsonpg_type p_accept_key(jsonpg_parser p, token t)
 {
         set_string_value(p, t);
-        return JPG_KEY;
+        return JSONPG_KEY;
 }
 
-static void reset_string_after_escape(jpg_parser p)
+static void reset_string_after_escape(jsonpg_parser p)
 {
         // After escape set enclosing string token.pos
         // to point to after the escape sequence
@@ -580,7 +454,7 @@ static void reset_string_after_escape(jpg_parser p)
         p->tokens[p->token_ptr].pos = 1 + p->current;
 }
 
-static void p_process_escape(jpg_parser p, token t)
+static void p_process_escape(jsonpg_parser p, token t)
 {
         // Only JSON specified escape chars get here
         static char escapes = "bfnrt\"\\/";
@@ -593,7 +467,7 @@ static void p_process_escape(jpg_parser p, token t)
         reset_string_after_escape(p);
 }
 
-static void p_process_escape_chars(jpg_parser p, token t)
+static void p_process_escape_chars(jsonpg_parser p, token t)
 {
         p_write_c(p, *t->pos);
         reset_string_after_escape(p);
@@ -617,14 +491,14 @@ static int parse_4hex(uint8_t *hex_ptr) {
         return value;
 }
 
-static int jpg_combine_surrogate_pair(int u1, int u2)
+static int jsonpg_combine_surrogate_pair(int u1, int u2)
 {
         return SURROGATE_OFFSET 
                 + (SURROGATE_LO_BITS(u1) << 10) 
                 + SURROGATE_LO_BITS(u2);
 }
 
-static int p_write_utf8(jpg_parser p, int cp) 
+static int p_write_utf8(jsonpg_parser p, int cp) 
 {
         int shift = 0;
         if(cp <= _1_BYTE_MAX) {
@@ -660,19 +534,19 @@ static int p_write_utf8(jpg_parser p, int cp)
         return 1;
 }
 
-static void p_process_escape_u(jpg_parser p, token t)
+static void p_process_escape_u(jsonpg_parser p, token t)
 {
         // \uXXXX or \uXXXX\uXXXX
         // token points to first "u"
         int cp = parse_4hex(1 + t->pos);
         if(p->current - t->pos > 9)
-                cp = jpg_combine_surrogate_pair(cp, parse_4hex(7 + t->pos));
+                cp = jsonpg_combine_surrogate_pair(cp, parse_4hex(7 + t->pos));
         p_write_utf8(p, cp);
 
         reset_string_after_escape(p);
 }
 
-static void input_read(jpg_parser p, uint8_t *start)
+static void input_read(jsonpg_parser p, uint8_t *start)
 {
        uint8_t *pos = start;
        int max = p->input_size - (start - p->input);
@@ -691,7 +565,7 @@ static void input_read(jpg_parser p, uint8_t *start)
        return max == 0;
 }
 
-static int parser_read_next(jpg_parser p)
+static int parser_read_next(jsonpg_parser p)
 {
         uint8_t start = p->input;
         if(p->token_ptr >= 0) {

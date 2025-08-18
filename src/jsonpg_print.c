@@ -4,15 +4,12 @@
 
 // TODO error handling of writer errors
 
-#define CTX_TO_INT(X) ((int)(int64_t)X)
-#define INT_TO_CTX(X)   ((void *)(int64_t)X)
-
 char number_buffer[32];
 
-typedef struct jpg_print_ctx_s *jpg_print_ctx;
+typedef struct jsonpg_print_ctx_s *jsonpg_print_ctx;
 typedef int (*write_fn)(void *, uint8_t *, size_t);
 
-struct jpg_print_ctx_s {
+struct jsonpg_print_ctx_s {
         int level;
         int comma;
         int key;
@@ -22,7 +19,7 @@ struct jpg_print_ctx_s {
         void *write_ctx;
 };
 
-static int write_utf8(jpg_print_ctx ctx, uint8_t *bytes, size_t count) 
+static int write_utf8(jsonpg_print_ctx ctx, uint8_t *bytes, size_t count) 
 {
         uint8_t *s = bytes;
         uint8_t *last_s = s;
@@ -77,7 +74,7 @@ static int write_utf8(jpg_print_ctx ctx, uint8_t *bytes, size_t count)
                         // we validate UTF8 sequences from outside
                         // but expect stuff from inside to be validated
 
-#ifdef JPG_VALIDATE_UTF8_OUT
+#ifdef JSONPG_VALIDATE_UTF8_OUT
                         int v = valid_utf8_sequence(s, count - (s - bytes));
                         if(!v)
                                 return 0;
@@ -100,17 +97,17 @@ static int write_utf8(jpg_print_ctx ctx, uint8_t *bytes, size_t count)
         return ctx->write(ctx->write_ctx, last_s, s - last_s);
 }
 
-static int write_c(jpg_print_ctx ctx, char c)
+static int write_c(jsonpg_print_ctx ctx, char c)
 {
         return ctx->write(ctx->write_ctx, (uint8_t *)&c, 1);
 }
 
-static int write_s(jpg_print_ctx ctx, char *s)
+static int write_s(jsonpg_print_ctx ctx, char *s)
 {
         return ctx->write(ctx->write_ctx, (uint8_t *)s, strlen(s));
 }
 
-static void print_indent(jpg_print_ctx ctx)
+static void print_indent(jsonpg_print_ctx ctx)
 {
         // Avoid leading newline
         if(ctx->nl)
@@ -122,7 +119,7 @@ static void print_indent(jpg_print_ctx ctx)
                 write_s(ctx, "    ");
 }
 
-static void print_prefix(jpg_print_ctx ctx)
+static void print_prefix(jsonpg_print_ctx ctx)
 {
         if(!ctx->key) {
                 if(ctx->comma)
@@ -135,14 +132,14 @@ static void print_prefix(jpg_print_ctx ctx)
         ctx->key = 0;
 }
 
-static void print_begin_prefix(jpg_print_ctx ctx)
+static void print_begin_prefix(jsonpg_print_ctx ctx)
 {
         print_prefix(ctx);
         ctx->comma = 0;
         ctx->level++;
 }
 
-static void print_end_prefix(jpg_print_ctx ctx)
+static void print_end_prefix(jsonpg_print_ctx ctx)
 {
         ctx->level--;
         if(ctx->comma) {
@@ -152,7 +149,7 @@ static void print_end_prefix(jpg_print_ctx ctx)
         ctx->comma = 1;
 }
 
-static void print_key_suffix(jpg_print_ctx ctx)
+static void print_key_suffix(jsonpg_print_ctx ctx)
 {
         write_c(ctx, ':');
         if(ctx->pretty)
@@ -262,14 +259,14 @@ static int print_end_object(void *ctx)
         return 0;
 }
 
-static int print_error(void *ctx, jpg_error_code code, int at)
+static int print_error(void *ctx, jsonpg_error_code code, int at)
 {
         fprintf(stderr, "\nError: %d [%d]", code, at);
         return 1;
 }
 
 
-static jpg_callbacks printer_callbacks = {
+static jsonpg_callbacks printer_callbacks = {
         .boolean = print_boolean,
         .null = print_null,
         .integer = print_integer,
@@ -283,15 +280,15 @@ static jpg_callbacks printer_callbacks = {
         .error = print_error
 };
 
-jpg_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
+jsonpg_visitor print_visitor(write_fn write, void *write_ctx, int pretty)
 {
-        jpg_visitor v = jpg_visitor_new(
+        jsonpg_visitor v = jsonpg_visitor_new(
                         &printer_callbacks, 
-                        sizeof(struct jpg_print_ctx_s));
+                        sizeof(struct jsonpg_print_ctx_s));
         if(!v)
                 return NULL;
 
-        jpg_print_ctx ctx = v->ctx;
+        jsonpg_print_ctx ctx = v->ctx;
 
         ctx->level = 0;
         ctx->comma = 0;
@@ -321,14 +318,14 @@ int write_fd(void *ctx, uint8_t *bytes, size_t count)
         return 1;
 }
 
-jpg_visitor jpg_file_printer(int fd, int pretty)
+jsonpg_visitor jsonpg_file_printer(int fd, int pretty)
 {
         return print_visitor(write_fd, INT_TO_CTX(fd), pretty);
 }
 
-jpg_visitor jpg_stream_printer(FILE *stream, int pretty)
+jsonpg_visitor jsonpg_stream_printer(FILE *stream, int pretty)
 {
-        return jpg_file_printer(fileno(stream), pretty);
+        return jsonpg_file_printer(fileno(stream), pretty);
 }
 
 int write_buffer(void *ctx, uint8_t *bytes, size_t count)
@@ -339,7 +336,7 @@ int write_buffer(void *ctx, uint8_t *bytes, size_t count)
                 : -1;
 }
 
-jpg_visitor jpg_buffer_printer(str_buf sbuf, int pretty)
+jsonpg_visitor jsonpg_buffer_printer(str_buf sbuf, int pretty)
 {
         return print_visitor(write_buffer, sbuf, pretty);
 }

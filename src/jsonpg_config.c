@@ -3,35 +3,35 @@
  * or reset the default configuration for all perses 
  * in the current program execution
  * 
- * jpg_config_get() gets the default config
+ * jsonpg_config_get() gets the default config
  *
  * individual fields can then be set
  *
  * json_config_set() will overwrite the default config
  * used for all future calls
  *
- * jpg_new() can be called with a custom config or NULL 
+ * jsonpg_new() can be called with a custom config or NULL 
  * to use the default config
  *
  *
  * Default configurations can be modified at compilation time
  *
- * The required symbol is JPG_ followed by uppercase of the config key
+ * The required symbol is JSONPG_ followed by uppercase of the config key
  * For example, to set the default stack size to 2048
  *
- * -DJPG_STACK_SIZE=2048
+ * -DJSONPG_STACK_SIZE=2048
  *
  * All boolean flags default to false and can be turned on by
  * setting the symbol without a value
  * For example, to allow comments in whitespace by default
  *
- * -DJPG_COMMENTS
+ * -DJSONPG_COMMENTS
  *
  *
  * stack_size
  *    size of stack for recording nesting of [] and {}
  *    memory used is (stack_size/8) bytes
- *    default: JPG_STACK_SIZE=1024
+ *    default: JSONPG_STACK_SIZE=1024
  *
  *
  * Flags:
@@ -102,45 +102,45 @@
 
 #include <string.h>
 
-static jpg_config config_defaults = {
-        .stack_size = JPG_STACK_SIZE,
+static jsonpg_config config_defaults = {
+        .stack_size = JSONPG_STACK_SIZE,
         .flags = 0x0
-#ifdef JPG_REPLACE_ILLFORMED_UTF8
-                | JPG_FLAG_REPLACE_ILLFORMED_UTF8
+#ifdef JSONPG_REPLACE_ILLFORMED_UTF8
+                | JSONPG_FLAG_REPLACE_ILLFORMED_UTF8
 #endif
 #ifdef JASONN_COMMENTS
-                | JPG_FLAG_COMMENTS
+                | JSONPG_FLAG_COMMENTS
 #endif
-#ifdef JPG_TRAILING_COMMAS
-                | JPG_FLAG_TRAILING_COMMAS
+#ifdef JSONPG_TRAILING_COMMAS
+                | JSONPG_FLAG_TRAILING_COMMAS
 #endif
-#ifdef JPG_SINGLE_QUOTES
-                | JPG_FLAG_SINGLE_QUOTES
+#ifdef JSONPG_SINGLE_QUOTES
+                | JSONPG_FLAG_SINGLE_QUOTES
 #endif
-#ifdef JPG_UNQUOTED_KEYS
-                | JPG_FLAG_UNQUOTED_KEYS
+#ifdef JSONPG_UNQUOTED_KEYS
+                | JSONPG_FLAG_UNQUOTED_KEYS
 #endif
-#ifdef JPG_UNQUOTED_STRINGS
-                | JPG_FLAG_UNQUOTED_STRINGS
+#ifdef JSONPG_UNQUOTED_STRINGS
+                | JSONPG_FLAG_UNQUOTED_STRINGS
 #endif
-#ifdef JPG_ESCAPE_CHARACTERS
-                | JPG_FLAG_ESCAPE_CHARACTERS
+#ifdef JSONPG_ESCAPE_CHARACTERS
+                | JSONPG_FLAG_ESCAPE_CHARACTERS
 #endif
-#ifdef JPG_OPTIONAL_COMMAS
-                | JPG_FLAG_OPTIONAL_COMMAS
+#ifdef JSONPG_OPTIONAL_COMMAS
+                | JSONPG_FLAG_OPTIONAL_COMMAS
 #endif
-#ifdef JPG_IS_OBJECT
-                | JPG_FLAG_IS_OBJECT
+#ifdef JSONPG_IS_OBJECT
+                | JSONPG_FLAG_IS_OBJECT
 #endif
-#ifdef JPG_IS_ARRAY
-                | JPG_FLAG_IS_ARRAY
+#ifdef JSONPG_IS_ARRAY
+                | JSONPG_FLAG_IS_ARRAY
 #endif
 };
 
 
-jpg_config jpg_config_get()
+jsonpg_config jsonpg_config_get()
 {
-        jpg_config config = {
+        jsonpg_config config = {
                 .stack_size = config_defaults.stack_size,
                 .flags = config_defaults.flags
         };
@@ -148,18 +148,18 @@ jpg_config jpg_config_get()
         return config;
 }
 
-void jpg_config_set(jpg_config *config) {
+void jsonpg_config_set(jsonpg_config *config) {
         config_defaults.stack_size = config->stack_size;
         config_defaults.flags = config->flags;
 }
 
-static jpg_config config_select(jpg_config *chosen_config) {
-        jpg_config config = {
-                .stack_size = JPG_STACK_SIZE,
+static jsonpg_config config_select(jsonpg_config *chosen_config) {
+        jsonpg_config config = {
+                .stack_size = JSONPG_STACK_SIZE,
                 .flags = 0
         };
 
-        jpg_config *source_config = chosen_config 
+        jsonpg_config *source_config = chosen_config 
                 ? chosen_config 
                 : &config_defaults;
 
@@ -167,7 +167,7 @@ static jpg_config config_select(jpg_config *chosen_config) {
                 config.stack_size = source_config->stack_size;
 
 
-        uint16_t incompatible_flags = JPG_FLAG_IS_OBJECT | JPG_FLAG_IS_ARRAY;
+        uint16_t incompatible_flags = JSONPG_FLAG_IS_OBJECT | JSONPG_FLAG_IS_ARRAY;
         if(incompatible_flags == 
                         (source_config->flags & incompatible_flags))
                 // is_object and is_array both set so unset both
