@@ -153,7 +153,10 @@ static jsonpg_type accept_real(jsonpg_parser p, token t)
 {
         errno = 0;
         double real = strtod((char *)t->pos, NULL);
-        if(errno || !isnormal(real)) 
+        if(errno) 
+                return number_error(p);
+
+        if(!(real == 0 || isnormal(real))) 
                 return number_error(p);
 
         p->result.number.real = real;
@@ -162,7 +165,7 @@ static jsonpg_type accept_real(jsonpg_parser p, token t)
 
 static int set_string_value(jsonpg_parser p, token t)
 {
-        if(p->write_buf && p->write_buf->count) {
+        if(p->write_buf->count) {
                 if(write_b(t->pos, p->current - t->pos))
                         return -1;
                 p->result.string.length = get_content(&p->result.string.bytes);
@@ -193,7 +196,7 @@ static void reset_string_after_escape(jsonpg_parser p)
         // to point to after the escape sequence
         assert(p->token_ptr > 0 && "Pop escape token with no enclosing string");
         
-        p->tokens[p->token_ptr - 1].pos = p->current;
+        p->tokens[p->token_ptr - 1].pos = p->current + 1;
 }
 
 static int process_escape(jsonpg_parser p, token t)
@@ -302,6 +305,9 @@ static int parser_read_next(jsonpg_parser p)
                         // write string bytes as we are still in a string
                         if(write_b(t->pos, p->last - t->pos))
                                 return -1;
+                        // And adjust token to start of string continuation
+                        t->pos = start;
+
                 }
         }
         int l = input_read(p, start);

@@ -144,6 +144,26 @@ typedef enum {
         CMD_IF_CONFIG
 } builtin_type;
 
+
+typedef enum {
+        ARG_STATE,
+        ARG_TOKEN,
+        ARG_FLAG,
+        ARG_OR     // multiple args or'ed together
+} arg_type;
+
+static arg_type arg_types[] = {
+        ARG_STATE,
+        ARG_STATE,
+        ARG_TOKEN,
+        ARG_TOKEN | ARG_OR,
+        ARG_TOKEN | ARG_OR,
+        ARG_TOKEN,
+        ARG_TOKEN,
+        ARG_TOKEN,
+        ARG_FLAG | ARG_OR
+};
+
 MAPPING(builtins)
 MAP("pushstate", CMD_PUSH_STATE)
 MAP("popstate", CMD_POP_STATE)
@@ -156,14 +176,17 @@ MAP("swap", CMD_SWAP)
 MAP("ifconfig", CMD_IF_CONFIG)
 MAPPING_END()
 
+typedef struct arg_list_s *arg_list;
+struct arg_list_s {
+        char *arg;
+        arg_list next;
+};
+
 struct builtin_s {
         builtin_type type;
         char *name;
-        char *arg;
-        union {
-                int config;
-                token_type token_type;
-        } arg_info;
+        arg_list args;
+        token_type token_type;  // multiple tokens, same type
 };
 
 struct class_list_s {
@@ -308,6 +331,22 @@ void append_rule(state states, rule r)
         }
         last->next = rl;
 }       
+                
+jsonn_type parse_args(jsonn_parser p, builtin b, int have_next)
+{
+        jsonn_type type;
+        b->args = NULL;
+        arg_list *al = &b->args;
+        while(have_next || JSONN_STRING == (type = jsonn_parse_next(p))) {
+                (*al) = fmalloc(sizeof(struct arg_list_s));
+                (*al)->next = NULL;
+                (*al)->arg = result_str(p);
+                al = &(*al)->next;
+
+                have_next = 0;
+        }
+        return type;
+}
 
 builtin parse_builtin(jsonn_parser p)
 {
@@ -323,41 +362,22 @@ builtin parse_builtin(jsonn_parser p)
 
         b->name = key;
         b->type = map_lookup(builtins, key);
+        arg_type arg_type = arg_types[b->type];
 
         type = jsonn_parse_next(p);
-        if(type == JSONN_BEGIN_ARRAY && b->type == CMD_IF_CONFIG) {
-                // config can take multiple ored together
-                str_buf sbuf = str_buf_new();
-                int flag = 0;
-                while(JSONN_STRING == (type = jsonn_parse_next(p))) {
-                        char *r = result_str(p);
-                        if(0 != flag)
-                                // a bit ugly but early rendering
-                                // makes life much easier
-                                str_buf_append_chars(sbuf, " | config_");
-                        str_buf_append_chars(sbuf, r); 
-                        flag |= map_lookup(configs, r);
-                }
-                expect_type(type, JSONN_END_ARRAY);
-                b->arg_info.config = flag;
-                str_buf_append(sbuf, (uint8_t *)"", 1);
-                str_buf_content(sbuf, (uint8_t **)&b->arg);
-        } else {
-                expect_type(type, JSONN_STRING);
-                b->arg = result_str(p);
-                switch(b->type) {
-                case CMD_IF_CONFIG:
-                        b->arg_info.config = map_lookup(configs, b->arg);
-                        break;
-                case CMD_POP_STATE:
-                case CMD_PUSH_STATE:
-                        break;
-                default:
-                        b->arg_info.token_type = map_lookup(tokens, b->arg);
-                }
-        }
+        if(type == JSONN_BEGIN_ARRAY) {
+                if(!(arg_type & ARG_OR))
+                        fail("Builtin command does not support multiple arguments");
 
-        expect_next(JSONN_END_OBJECT, p);
+                type = parse_args(p, b, 0);
+                expect_type(type, JSONN_END_ARRAY);
+                type = jsonn_parse_next(p);
+        } else if(type == JSONN_STRING) {
+                type = parse_args(p, b, 1);
+        } else {
+                fail("Unexpected input token when parsing builtin");
+        }
+        expect_type(type, JSONN_END_OBJECT);
 
         return b;
 }
@@ -568,21 +588,37 @@ int validate_builtin(builtin b)
                 warn("Unknown builtin '%s'", b->name);
                 return 0;
         }
+        arg_list al = b->args;
         switch(b->type) {
         case CMD_PUSH_STATE:
         case CMD_POP_STATE:
                 // no validation required
                 break;
         case CMD_IF_CONFIG:
-                if(b->arg_info.config < 0) {
-                        warn("Unknown config '%s'", b->arg);
-                        return 0;
+                while(al) {
+                        if(map_lookup(configs, al->arg) == -1) {
+                                warn("Unknown config '%s'", al->arg);
+                                return 0;
+                        }
+                        al = al->next;
                 }
                 break;
         default:
-                if(b->arg_info.token_type == -1) {
-                        warn("Unknown token '%s'", b->arg);
-                        return 0;
+                arg_list al = b->args;
+                token_type tt;
+                while(al) {
+                        tt = map_lookup(tokens, al->arg);
+                        if(tt == -1) {
+                                warn("Unknown token '%s'", al->arg);
+                                return 0;
+                        }
+
+                        if(b->args != al && b->token_type != tt) {
+                                warn("Incompatible token type '%s'", al->arg);
+                                return 0;
+                        }
+                        b->token_type = tt;
+                        al = al->next;
                 }
                 break;
         }
@@ -681,7 +717,11 @@ state parse_state(jsonn_parser p)
 void dump_command(builtin command)
 {
         printf("  Command: %s\n", command->name);
-        printf("           %s\n", command->arg);
+        arg_list al = command->args;
+        while(al) {
+                printf("           %s\n", al->arg);
+                al = al->next;
+        }
 }
 
 void dump_action_rule(rule r)
@@ -836,17 +876,26 @@ void render_x(renderer r, uint8_t x)
         render_c(r, gen_hex_chars[x & 0xF]);
 }        
 
-void render_enum(rule r, renderer enums, int first) 
+void render_enum(rule r, renderer enums, renderer enum_names, int first) 
 {
         if(r->id < 0)
                 // will mess up first processing if first entry is virtual,
                 // which it isn't at the moment (phew)
                 return;
 
-        if(!first)
+        if(!first) {
                 render(enums, ",");
+                render(enum_names, ",");
+        }
+
         render_indent(enums, "state_");
         render(enums, r->name);
+
+        render_indent(enum_names, "[state_");
+        render(enum_names, r->name);
+        render(enum_names, "] = \"state_");
+        render(enum_names, r->name);
+        render(enum_names, "\"");
 }
 
 void render_map_values(rule r, uint8_t *bytes, renderer map, int first_map)
@@ -879,24 +928,41 @@ void render_call(char *prefix, char *arg, renderer code)
         render(code, ");");
 }
 
-void render_if(int not, char *prefix, char *arg, char *close, renderer code)
+void render_if(int not, char *prefix, arg_list args, char *close, renderer code)
 {
+        int bracket = not && args->next != NULL;
         render_indent(code, "if(");
-        if(not)
+
+        if(not) {
                 render(code, "!");
+                if(bracket)
+                        render(code, "(");
+        }
         render(code, prefix);
-        render(code, arg);
+        render(code, args->arg);
         render(code, close);
+        args = args->next;
+        while(args) {
+                render(code, " || ");
+                render(code, prefix);
+                render(code, args->arg);
+                render(code, close);
+                args = args->next;
+        }
+
+        if(bracket)
+                render(code, ")");
+
         render(code, ") {");
         render_level(code, 1);
 }
 
 void render_ifpeek(int not, builtin command, renderer code)
 {
-        if(command->arg_info.token_type == TOKEN_MULTI) {
-                render_if(not, "in_", command->arg, "()", code);
+        if(command->token_type == TOKEN_MULTI) {
+                render_if(not, "in_", command->args, "()", code);
         } else {
-                render_if(not, "ifpeek_token(token_", command->arg, ")", code);
+                render_if(not, "ifpeek_token(token_", command->args, ")", code);
         }
 }
 
@@ -912,11 +978,11 @@ void render_alloc_error(renderer code)
 
 void render_builtin(int is_virtual, builtin command, renderer code)
 {
-        char *arg = command->arg;
+        arg_list args = command->args;
         switch(command->type) {
         case CMD_PUSH_STATE:
                 render_indent(code, "push_state(state_");
-                render(code, arg);
+                render(code, args->arg);
                 render(code, ");");
                 break;
         case CMD_POP_STATE:
@@ -925,24 +991,24 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 render_indent(code, "new_state = pop_state();");
                 break;
         case CMD_IF_CONFIG:
-                render_if(0, "if_config(config_", arg, ")", code);
+                render_if(0, "if_config(config_", args, ")", code);
                 break;
         case CMD_PUSH:
-                switch(command->arg_info.token_type) {
+                switch(command->token_type) {
                 case(TOKEN_MULTI):
                         render_indent(code, "result = begin_");
-                        render(code, arg);
+                        render(code, args->arg);
                         render(code, "();");
                         break;
                 case(TOKEN_PARTIAL):
                         render_indent(code, "if(push_token(token_");
-                        render(code, arg);
+                        render(code, args->arg);
                         render(code, "))");
                         render_alloc_error(code);
                         break;
                 default:
                         render_indent(code, "push_token(token_");
-                        render(code, arg);
+                        render(code, args->arg);
                         render(code, ");");
                 }
                 break;
@@ -956,20 +1022,20 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 render_ifpeek(0, command, code);
                 // fallthrough
         case CMD_POP:
-                switch(command->arg_info.token_type) {
+                switch(command->token_type) {
                 case TOKEN_FINAL:
                         render_indent(code, "result = accept_");
-                        render(code, arg);
+                        render(code, args->arg);
                         render(code, "(pop_token());");
                         break;
                 case TOKEN_MULTI:
                         render_indent(code, "result = end_");
-                        render(code, arg);
+                        render(code, args->arg);
                         render(code, "();");
                         break;
                 case TOKEN_PARTIAL:
                         render_indent(code, "if(process_");
-                        render(code, arg);
+                        render(code, args->arg);
                         render(code, "(pop_token()))");
                         render_alloc_error(code);
                         break;
@@ -980,7 +1046,7 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 break;
         case CMD_SWAP:
                 render_indent(code, "swap_token(token_");
-                render(code, arg);
+                render(code, args->arg);
                 render(code, ");");
                 break;
         default:
@@ -1070,51 +1136,82 @@ void render_actions(int is_virtual, action_list al, renderer code)
         }
 }
 
-uint8_t render_new_action(renderer code)
+void render_action_comment(
+                int is_virtual,
+                renderer code)
+{
+        render_indent(code, "// ");
+        if(is_virtual)
+                render(code, "[virtual] ");
+}
+
+void render_action_desc(rule r, match m, renderer rend, int escape)
+{
+        render(rend, r->name);
+        render(rend, "/");
+
+        switch(m->type) {
+                case MATCH_CLASS:
+                        render(rend, "$");
+                        render(rend, m->match.class->name);
+                        break;
+                case MATCH_CHAR:
+                        render(rend, "'");
+                        if(escape &&
+                                        ('\\' == m->match.character 
+                                         || '\"' == m->match.character))
+                                render(rend, "\\");
+                        render_c(rend, m->match.character);
+                        render(rend, "'");
+                        break;
+                case MATCH_RANGE:
+                        render_x(rend, m->match.range.start);
+                        render(rend, "-");
+                        render_x(rend, m->match.range.end);
+                        break;
+                case MATCH_ANY:
+                        render(rend, "...");
+                        break;
+                case MATCH_VIRTUAL:
+                        render(rend, "???");
+                        break;
+                case MATCH_CLASS_NAME:
+                        fail("Class '%s' not resolved", m->match.class_name);
+        }
+}
+
+uint8_t render_new_action(
+                int is_virtual,
+                rule r,
+                match m,
+                renderer code, 
+                renderer cases)
 {
         uint8_t s = gen_action_id++;
         render_indent(code, "case ");
         render_x(code, s);
         render(code, ":");
         render_level(code, 1);
+
+        render_indent(cases, "[");
+        render_x(cases, s);
+        render(cases, "] = ");
+
+        render_action_comment(is_virtual, code);
+        render_action_desc(r, m, code, 0);
+
+        render(cases, "\"");
+        render_action_desc(r, m, cases, 1);
+        render(cases, "\",");
+
         return s;
 }
 
-void render_action_comment(int is_virtual, rule r, match m, renderer code)
-{
-        render_indent(code, "// ");
-        if(is_virtual)
-                render(code, "[virtual] ");
-        render(code, r->name);
-        render(code, "/");
-        switch(m->type) {
-                case MATCH_CLASS:
-                        render(code, "$");
-                        render(code, m->match.class->name);
-                        break;
-                case MATCH_CHAR:
-                        render(code, "'");
-                        render_c(code, m->match.character);
-                        render(code, "'");
-                        break;
-                case MATCH_RANGE:
-                        render_x(code, m->match.range.start);
-                        render(code, "-");
-                        render_x(code, m->match.range.end);
-                        break;
-                case MATCH_ANY:
-                        render(code, "...");
-                        break;
-                case MATCH_VIRTUAL:
-                        render(code, "???");
-                        break;
-                case MATCH_CLASS_NAME:
-                        fail("Class '%s' not resolved", m->match.class_name);
-
-        }
-}
-
-uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
+uint8_t render_match_action(
+                int is_virtual,
+                rule r, match m,
+                renderer code,
+                renderer cases)
 {
         if(m->id)
                 return m->id;
@@ -1122,15 +1219,13 @@ uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
         action a = m->action;
         switch(a->type) {
                 case ACTION_LIST:
-                        m->id = render_new_action(code);
-                        render_action_comment(is_virtual, r, m, code);
+                        m->id = render_new_action(is_virtual, r, m, code, cases);
                         render_actions(is_virtual, a->action.actions, code);
                         render_indent(code, "break;");
                         render_level(code, -1);
                         break;
                 case ACTION_COMMAND:
-                        m->id = render_new_action(code);
-                        render_action_comment(is_virtual, r, m, code);
+                        m->id = render_new_action(is_virtual, r, m, code, cases);
                         render_builtin(is_virtual, a->action.command, code);
                         render_indent(code, "break;");
                         render_level(code, -1);
@@ -1138,7 +1233,12 @@ uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
                 case ACTION_RULE:
                         rule ar = a->action.rule;
                         if(ar->id < 0) {
-                                m->id = render_match_action(is_virtual, ar, ar->matches->match, code);
+                                m->id = render_match_action(
+                                                is_virtual, 
+                                                ar, 
+                                                ar->matches->match, 
+                                                code, 
+                                                cases);
                         } else {
                                 m->id = ar->id;
                         }
@@ -1151,16 +1251,16 @@ uint8_t render_match_action(int is_virtual, rule r, match m, renderer code)
         return m->id;
 }
 
-uint8_t render_rule_default_state(rule r, renderer code)
+uint8_t render_rule_default_state(rule r, renderer code, renderer cases)
 {
         match_list ml = r->matches;
         while(ml) {
                 match m = ml->match;
                 if(m->type == MATCH_ANY) {
-                        return render_match_action(false, r, m, code);
+                        return render_match_action(false, r, m, code, cases);
                         break;
                 } else if(m->type == MATCH_VIRTUAL) {
-                        return render_match_action(true, r, m, code);
+                        return render_match_action(true, r, m, code, cases);
                         break;
                 }
                 ml = ml->next;
@@ -1173,16 +1273,23 @@ uint8_t render_rule_default_state(rule r, renderer code)
 
 
 
-void render_rule(rule r, renderer map, renderer enums, renderer code, int first)
+void render_rule(
+                rule r, 
+                renderer map, 
+                renderer enums, 
+                renderer enum_names,
+                renderer code, 
+                renderer cases,
+                int first)
 {
         if(r->id < 0)
                 return;
 
         static uint8_t rule_states[256];
 
-        render_enum(r, enums, first);
+        render_enum(r, enums, enum_names, first);
         match_list ml = r->matches;
-        uint8_t def_state = render_rule_default_state(r, code);
+        uint8_t def_state = render_rule_default_state(r, code, cases);
         memset(rule_states, def_state, 256);
 
         while(ml) {
@@ -1191,18 +1298,18 @@ void render_rule(rule r, renderer map, renderer enums, renderer code, int first)
                 uint8_t match_state;
                 switch(m->type) {
                         case MATCH_CLASS:
-                                match_state = render_match_action(false, r, m, code);
+                                match_state = render_match_action(false, r, m, code, cases);
                                 uint8_t *chars = m->match.class->chars;
                                 len = strlen((char *)chars);
                                 for(int i = 0 ; i < len ; i++)
                                         rule_states[chars[i]] = match_state;
                                 break;
                         case MATCH_CHAR:
-                                match_state = render_match_action(false, r, m, code);
+                                match_state = render_match_action(false, r, m, code, cases);
                                 rule_states[m->match.character] = match_state;
                                 break;
                         case MATCH_RANGE:
-                                match_state = render_match_action(false, r, m, code);
+                                match_state = render_match_action(false, r, m, code, cases);
                                 range *rg = &m->match.range;
                                 len = rg->end - rg->start;
                                 for(int i = 0 ; i <= len ; i++)
@@ -1256,14 +1363,19 @@ void render_state(state states)
         rule_list rl = states->rules;
         renderer map = renderer_new(1);
         renderer enums = renderer_new(1);
+        renderer enum_names = renderer_new(1);
+        renderer cases = renderer_new(1);
         renderer code = renderer_new(CODE_START_LEVEL);
 
         int first = 1;
         while(rl) {
-                render_rule(rl->rule, map, enums, code, first);
+                render_rule(rl->rule, map, enums, enum_names, code, cases, first);
                 first = 0;
                 rl = rl->next;
         }
+
+        // drop last comma from cases
+        cases->sbuf->count--;
 
         FILE *skelfile = fopen(SKELETON_FILE, "r");
         if(!skelfile)
@@ -1275,6 +1387,8 @@ void render_state(state states)
 
         merge_renderer(skelfile, cfile, map, "<= map");
         merge_renderer(skelfile, cfile, enums, "<= enums");
+        merge_renderer(skelfile, cfile, enum_names, "<= enum_names");
+        merge_renderer(skelfile, cfile, cases, "<= cases");
         merge_renderer(skelfile, cfile, code, "<= code");
         copy_until(skelfile, cfile, NULL);
 

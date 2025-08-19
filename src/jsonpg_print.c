@@ -205,7 +205,7 @@ static int print_integer(void *ctx, int64_t l)
 
 static int print_real(void *ctx, double d) 
 {
-        if(!isnormal(d)) {
+        if(!(d == 0 || isnormal(d))) {
                 // TODO better errors
                 return -1;
         }

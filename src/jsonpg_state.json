@@ -15,7 +15,7 @@
 
 "whitespace": {
         "$whitespace": "whitespace",
-        "/": [{"ifconfig": "comments"}, "comment_leader", "whitespace" ],
+        "/": [{"ifconfig": "comments"}, "comment_leader", {"popstate": ""}],
         "???": {"popstate": ""}
 },
 
@@ -53,8 +53,8 @@
         "$1-9": [{"push": "integer"}, "integer"],
         "\"": [{"push": "string"}, "string" ],
         "'": [{"ifconfig": "single_quotes"}, "single_quote_string"],
-        "{": [ {"push": "object"}, "key" ],
-        "[": [ {"push": "array"}, "value" ],
+        "{": [ {"push": "object"}, "value_or_close" ],
+        "[": [ {"push": "array"}, "value_or_close" ],
         "???": [{"ifconfig": "unquoted_strings"}, "no_quote_string"]
 },
 
@@ -92,54 +92,64 @@
         ":": "value"
 },
 
+"maybe_after_value": {
+        "???": [[{"ifpeek": "object"}, "after_value"],
+                [{"ifpeek": "array"}, "after_value"],
+                [{"pushstate": "error"}, "whitespace"]
+        ]
+},
+
 "after_value": {
         "???": [{"pushstate": "w_after_value"}, "whitespace"]
 },
 
 "w_after_value": {
-        ",": [{"ifconfig": "trailing_commas"}, "value_or_close", "after_separator"],
-        "}": [{"ifpop": "object"}, "after_value"],
-        "]": [{"ifpop": "array"}, "after_value"],
-        "???": [{"ifconfig": "optional_commas"}, "after_separator"]
+        ",": [{"ifconfig": "trailing_commas"}, "value_or_close", "maybe_after_separator"],
+        "}": [{"ifpop": "object"}, "maybe_after_value"],
+        "]": [{"ifpop": "array"}, "maybe_after_value"],
+        "???": [{"ifconfig": "optional_commas"}, "maybe_after_separator"]
 },
 
 
 
 
 "value_or_close": {
-        "}": [{"ifpop": "object"}, "after_value"],
-        "]": [{"ifpop": "array"}, "after_value"],
-        "???": "after_separator"
+        "}": [{"ifpop": "object"}, "maybe_after_value"],
+        "]": [{"ifpop": "array"}, "maybe_after_value"],
+        "???": "maybe_after_separator"
+},
+
+"maybe_after_separator": {
+        "???": [[{"ifpeek": "object"}, "after_separator"],
+                [{"ifpeek": "array"}, "after_separator"],
+                [{"pushstate": "error"}, "whitespace"]
+        ]
 },
 
 "after_separator": {
         "???": [{"ifpeek": "object"}, "key", "value"]
 },
 
-
-
-
-
 "null_2": { "u": "null_3" },
 "null_3": { "l": "null_4" },
-"null_4": { "l": [{"pop": "null"}, "after_value"] },
+"null_4": { "l": [{"pop": "null"}, "maybe_after_value"] },
 
 "true_2": { "r": "true_3" },
 "true_3": { "u": "true_4" },
-"true_4": { "e": [{"pop": "true"}, "after_value"] },
+"true_4": { "e": [{"pop": "true"}, "maybe_after_value"] },
 
 "false_2": { "a": "false_3" },
 "false_3": { "l": "false_4" },
 "false_4": { "s": "false_5" },
-"false_5": { "e": [{"pop": "false"}, "after_value"] },
+"false_5": { "e": [{"pop": "false"}, "maybe_after_value"] },
 
 
 "after_integer": {
-        "???": [{"pop": "integer"}, "after_value"]
+        "???": [{"pop": "integer"}, "maybe_after_value"]
 },
 
 "after_real": {
-        "???": [{"pop": "real"}, "after_value"]
+        "???": [{"pop": "real"}, "maybe_after_value"]
 },
 
 "minus": {
@@ -148,16 +158,20 @@
 },
 
 "zero_integer": {
-        ".": [{"swap": "real"}, "fraction"],
+        ".": [{"swap": "real"}, "fraction_prefix"],
         "$exponent": [{"swap": "real"}, "exponent_prefix"],
         "???": "after_integer"
 },
 
 "integer": {
         "$0-9": "integer",
-        ".": [{"swap": "real"}, "fraction"],
+        ".": [{"swap": "real"}, "fraction_prefix"],
         "$exponent": [{"swap": "real"}, "exponent_prefix"],
         "???": "after_integer"
+},
+
+"fraction_prefix": {
+        "$0-9": "fraction"
 },
 
 "fraction": {
@@ -185,7 +199,7 @@
 
 "string": {
         "\\": "start_escape",
-        "\"": [{"ifpop": "string"}, "after_value", "end_key"],
+        "\"": [{"ifpop": "string"}, "maybe_after_value", "end_key"],
         "0x20-0x21": "string",
         "0x23-0x5B": "string",
         "0x5D-0x7F": "string",
@@ -205,7 +219,7 @@
 
 "sq_string": {
         "\\": "start_escape",
-        "'": [{"ifpop": "sq_string"}, "after_value", "end_sq_key"],
+        "'": [{"ifpop": "sq_string"}, "maybe_after_value", "end_sq_key"],
         "0x20-0x26": "sq_string",
         "0x28-0x5B": "sq_string",
         "0x5D-0x7F": "sq_string",
@@ -226,7 +240,7 @@
 
 "nq_string": {
         "\\": [{"ifconfig": "escape_characters"}, "start_escape_chars", "start_escape"],
-        " ": [{"ifpop": "nq_string"}, "after_value", "end_nq_key"],
+        " ": [{"ifpop": "nq_string"}, "maybe_after_value", "end_nq_key"],
         "0x21-0x5B": "nq_string",
         "0x5D-0x7F": "nq_string",
         "0xC2-0xDF": "continuation_1",
@@ -272,11 +286,11 @@
 },
 
 "select_string": {
-        "???": [{"ifpeek": "string"}, "string", "other_string"] 
+        "???": [{"ifpeek": ["string", "key"]}, "string", "other_string"] 
 },
 
 "other_string": {
-        "???": [{"ifpeek": "sq_string"}, "sq_string", "nq_string"]
+        "???": [{"ifpeek": ["sq_string", "sq_key"]}, "sq_string", "nq_string"]
 },
 
 "continuation_2": { 
@@ -302,13 +316,13 @@
 },
 
 "hex_1": {
-        "D": [ {"ifpeek": "surrogate" }, "low_surrogate_2", "high_surrogate_2" ],
-        "$hex_digit": [{"ifnpeek": "surrogate"}, "hex_2"]
+        "$hex_digit": [{"ifnpeek": "surrogate"}, "hex_2"],
+        "d": [ {"ifpeek": "surrogate" }, "low_surrogate_2", "high_surrogate_2" ],
+        "D": [ {"ifpeek": "surrogate" }, "low_surrogate_2", "high_surrogate_2" ]
 },
 
 "high_surrogate_2": {
-        "$high_surrogate_2": [ {"push": "surrogate"}, "hex_3" ],
-        "$hex_digit": "hex_3"
+        "$high_surrogate_2": [ {"push": "surrogate"}, "hex_3" ]
 },
 
 "low_surrogate_2": {

@@ -3,6 +3,8 @@
 #include "jsonpg_generate.h"
 #include "jsonpg_ctx.h"
 
+#define JSONPG_DEBUG
+#include "jsonpg_debug.c"
 #include "jsonpg_alloc.c"
 #include "jsonpg_strbuf.c"
 #include "jsonpg_utf8.c"

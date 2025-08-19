@@ -45,6 +45,17 @@ typedef enum {
         state_error   = JSONPG_STATE_ERROR
 } state;
 
+#ifdef JSONPG_DEBUG
+char *states[256] = {
+<= enum_names
+,
+        [state_initial] = "state_initial",
+        [state_error] = "state_error",
+<= cases
+
+};
+#endif
+
 jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
         if(p->state == state_initial) {
                 p->push_state = 
@@ -53,10 +64,18 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
                                 : state_w_value;
                 p->state = state_whitespace;
         }
+        str_buf_reset(p->write_buf);
 
         while(1) {
                 while(p->current < p->last) {
                         state current_state = state_map[p->state][*p->current];
+
+                        JSONPG_LOG("State change: %s [%02X:%c] => %s\n", 
+                                        states[p->state],
+                                        *p->current,
+                                        log_printablechar(*p->current),
+                                        states[current_state]);
+
                         if(!(current_state & 0x80)) {
                                 p->state = current_state;
                                 p->current++;
@@ -74,6 +93,10 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
                         if(new_state == state_error)
                                 return parse_error(p);
 
+                        JSONPG_LOG("New state: %s, use %s input\n",
+                                        states[new_state],
+                                        incr ? "next" : "same");
+
                         p->state = new_state;
                         p->current += incr;
 
@@ -81,11 +104,34 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
                                 return result;
                         }
                 }
-                if(p->seen_eof)
-                        return (p->token_ptr == 0)
+                if(p->seen_eof) {
+
+                        JSONPG_LOG("Exiting... state=%s, push_state=%s token_ptr=%d, stack_ptr=%d\n",
+                                        states[p->state],
+                                        states[p->push_state],
+                                        p->token_ptr,
+                                        p->stack_ptr);
+
+                        // no whitespace after number leaves it dangling
+                        if(p->state == state_zero_integer
+                                        || p->state == state_integer) {
+                                p->push_state = state_error;
+                                p->state = state_whitespace;
+                                return accept_integer(pop_token());
+                        } else if(p->state == state_fraction
+                                        || p->state == state_exponent) {
+                                p->push_state = state_error;
+                                p->state = state_whitespace;
+                                return accept_real(pop_token());
+                        }
+
+                        return (p->push_state == state_error
+                                        && p->token_ptr == 0 
+                                        && p->stack_ptr == p->stack_ptr_min)
                                ? JSONPG_EOF
                                : parse_error(p);
-                else if(-1 == parser_read_next(p))
+                } else if(-1 == parser_read_next(p)) {
                         return file_read_error(p);
+                }
         }
 }
