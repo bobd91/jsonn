@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#ifdef JSONPG_DEBUG 
+
 FILE *log_stream;
 
 static void log_open(char *logfile)
@@ -32,7 +34,6 @@ static void log_printf(char *fmt, ...)
 }
 
 
-#ifdef JSONPG_DEBUG 
 #define JSONPG_LOG(A, ...) (log_printf((A) __VA_OPT__(,) __VA_ARGS__))
 #else
 #define JSONPG_LOG(...) 

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #include "jsonpg.c"
 
@@ -44,21 +45,62 @@ int main(int argc, char *argv[])
 
         jsonpg_parser p = jsonpg_parser_new(NULL); //&c);
 
-        pp = p;
-
-        jsonpg_type res;
+        jsonpg_type res = JSONPG_NONE;
 
         //      jsonpg_generator generator = jsonpg_stream_printer(stdout, 1);
         str_buf sbuf = str_buf_new();
-        jsonpg_generator generator = jsonpg_buffer_printer(sbuf, 1);
+        jsonpg_generator generator = jsonpg_buffer_printer(sbuf, 0);
 
-        if(argc == 3 && 0 == strcmp("-e", argv[1])) {
-                puts(argv[2]);
-                uint8_t buf[1024];
-                char *json = argv[2];
-                size_t len = strlen(json);
-                memcpy(buf, json, len + 1);
-                res = jsonpg_parse(p, buf, len, generator);
+        if(argc == 3) {
+                if(0 == strcmp("-e", argv[1])) {
+                        puts(argv[2]);
+                        uint8_t buf[1024];
+                        char *json = argv[2];
+                        size_t len = strlen(json);
+                        memcpy(buf, json, len + 1);
+                        res = jsonpg_parse(p, buf, len, generator);
+                } else if(0 == strcmp("-t", argv[1])) {
+                                errno = 0;
+                                long times = strtol(argv[2], NULL, 10);
+                                if(errno) {
+                                        perror("Not a number");
+                                        exit(1);
+                                }
+                                jsonpg_type t; 
+                                FILE *fh = fopen("jspg.json", "rb");
+                                if(fh) {
+                                        fseek(fh, 0L, SEEK_END);
+                                        long length = ftell(fh);
+                                        rewind(fh);
+                                        uint8_t *buf = malloc(length + 1);
+                                        if(buf) {
+                                                fread(buf, length, 1, fh);
+                                                for(int i = 0 ; i < times ; i++) {
+                                                        t = jsonpg_parse(p, buf, length, NULL);
+                                                        while(t != JSONPG_EOF
+                                                                        && t != JSONPG_ERROR) {
+                                                                t = jsonpg_parse_next(p);
+                                                        }
+                                                        if(t == JSONPG_ERROR) {
+                                                                perror("Parse failed");
+                                                                exit(1);
+                                                        }
+                                                }
+                                                jsonpg_parser_free(p);
+                                                free(buf);
+                                                int ret = (t == JSONPG_EOF) ? 0 : 1;
+                                                printf("Type: %d, Returned %d\n", t, ret);
+                                                return ret;
+                                        } else {
+                                                perror("Failed to allocate buffer");
+                                                exit(1);
+                                        }
+                                        fclose(fh);
+                                }
+                }
+
+                                
+                                
         } else if(argc == 2) {
                 int fd = open(argv[1], O_RDONLY, "rb");
                 if(fd == -1) {
@@ -69,9 +111,9 @@ int main(int argc, char *argv[])
                 res = jsonpg_parse_fd(p, fd, generator);
         }
 
-        uint8_t *bytes;
+        uint8_t *bytes = (uint8_t *)"";
         size_t count = str_buf_content(sbuf, &bytes);
-        printf("%.*s\n", (int)count, bytes);
+        printf("%.*s\n", (int)count, (bytes ? (char *)bytes : ""));
 
         if(res == JSONPG_EOF)
                 printf("\n\nResult EOF: %d\n", res);

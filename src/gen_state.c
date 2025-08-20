@@ -970,8 +970,9 @@ void render_alloc_error(renderer code)
 {
         render(code, " {");
         render_level(code, 1);
-        render_indent(code, "result = alloc_error(p);");
-        render_indent(code, "break;");
+        // render_indent(code, "result = alloc_error(p);");
+        // render_indent(code, "break;");
+        render_indent(code, "return alloc_error(p);");
         render_level(code, -1);
         render_indent(code, "}");
 }
@@ -986,9 +987,11 @@ void render_builtin(int is_virtual, builtin command, renderer code)
                 render(code, ");");
                 break;
         case CMD_POP_STATE:
-                if(is_virtual)
-                        render_indent(code, "incr = 0;");
+                // if(is_virtual)
+                //         render_indent(code, "incr = 0;");
                 render_indent(code, "new_state = pop_state();");
+                render_indent(code, "goto L");
+                render(code, is_virtual ? "noinc;" : "inc;");
                 break;
         case CMD_IF_CONFIG:
                 render_if(0, "if_config(config_", args, ")", code);
@@ -1057,14 +1060,16 @@ void render_builtin(int is_virtual, builtin command, renderer code)
 
 void render_rule_match(int is_virtual, rule r, renderer code)
 {
-        if(is_virtual)
-                render_indent(code, "incr = 0;");
+        // if(is_virtual)
+        //         render_indent(code, "incr = 0;");
         render_indent(code, "new_state = state_");
         render(code, r->name);
         render(code, ";");
 
-        if(code->level > 1 + code->startlevel)
-                render_indent(code, "break;");
+        // if(code->level > 1 + code->startlevel)
+                // render_indent(code, "break;");
+        render_indent(code, "goto L");
+        render(code, is_virtual ? "noinc;" : "inc;");
 }
 
 void render_actions(int, action_list, renderer);
@@ -1184,11 +1189,18 @@ uint8_t render_new_action(
                 int is_virtual,
                 rule r,
                 match m,
+                renderer gotos,
                 renderer code, 
                 renderer cases)
 {
         uint8_t s = gen_action_id++;
-        render_indent(code, "case ");
+        
+        render_indent(gotos, "&&L");
+        render_x(gotos, s);
+        render(gotos, ",");
+
+        render_indent(code, "L");
+        // render_indent(code, "case ");
         render_x(code, s);
         render(code, ":");
         render_level(code, 1);
@@ -1207,9 +1219,21 @@ uint8_t render_new_action(
         return s;
 }
 
+int render_previous(renderer r, char *txt) {
+        int count = strlen(txt);
+        if(r->sbuf->count >= count) {
+                return 0 == memcmp(txt, 
+                                r->sbuf->bytes + r->sbuf->count - count,
+                                count);
+        }
+        return 0;
+}
+
 uint8_t render_match_action(
                 int is_virtual,
-                rule r, match m,
+                rule r,
+                match m,
+                renderer gotos,
                 renderer code,
                 renderer cases)
 {
@@ -1219,15 +1243,21 @@ uint8_t render_match_action(
         action a = m->action;
         switch(a->type) {
                 case ACTION_LIST:
-                        m->id = render_new_action(is_virtual, r, m, code, cases);
+                        m->id = render_new_action(is_virtual, r, m, gotos, code, cases);
                         render_actions(is_virtual, a->action.actions, code);
-                        render_indent(code, "break;");
+                        // render_indent(code, "break;");
+                        if(!(render_previous(code, "goto Linc;")
+                                                || render_previous(code, "goto Lnoinc;")))
+                                render_indent(code, "goto Lerror;");
                         render_level(code, -1);
                         break;
                 case ACTION_COMMAND:
-                        m->id = render_new_action(is_virtual, r, m, code, cases);
+                        m->id = render_new_action(is_virtual, r, m, gotos, code, cases);
                         render_builtin(is_virtual, a->action.command, code);
-                        render_indent(code, "break;");
+                        // render_indent(code, "break;");
+                        if(!(render_previous(code, "goto Linc;")
+                                                || render_previous(code, "goto Lnoinc;")))
+                                render_indent(code, "goto Lerror;");
                         render_level(code, -1);
                         break;
                 case ACTION_RULE:
@@ -1237,6 +1267,7 @@ uint8_t render_match_action(
                                                 is_virtual, 
                                                 ar, 
                                                 ar->matches->match, 
+                                                gotos, 
                                                 code, 
                                                 cases);
                         } else {
@@ -1251,16 +1282,16 @@ uint8_t render_match_action(
         return m->id;
 }
 
-uint8_t render_rule_default_state(rule r, renderer code, renderer cases)
+uint8_t render_rule_default_state(rule r, renderer gotos, renderer code, renderer cases)
 {
         match_list ml = r->matches;
         while(ml) {
                 match m = ml->match;
                 if(m->type == MATCH_ANY) {
-                        return render_match_action(false, r, m, code, cases);
+                        return render_match_action(false, r, m, gotos, code, cases);
                         break;
                 } else if(m->type == MATCH_VIRTUAL) {
-                        return render_match_action(true, r, m, code, cases);
+                        return render_match_action(true, r, m, gotos, code, cases);
                         break;
                 }
                 ml = ml->next;
@@ -1278,6 +1309,7 @@ void render_rule(
                 renderer map, 
                 renderer enums, 
                 renderer enum_names,
+                renderer gotos,
                 renderer code, 
                 renderer cases,
                 int first)
@@ -1289,7 +1321,7 @@ void render_rule(
 
         render_enum(r, enums, enum_names, first);
         match_list ml = r->matches;
-        uint8_t def_state = render_rule_default_state(r, code, cases);
+        uint8_t def_state = render_rule_default_state(r, gotos, code, cases);
         memset(rule_states, def_state, 256);
 
         while(ml) {
@@ -1298,18 +1330,18 @@ void render_rule(
                 uint8_t match_state;
                 switch(m->type) {
                         case MATCH_CLASS:
-                                match_state = render_match_action(false, r, m, code, cases);
+                                match_state = render_match_action(false, r, m, gotos, code, cases);
                                 uint8_t *chars = m->match.class->chars;
                                 len = strlen((char *)chars);
                                 for(int i = 0 ; i < len ; i++)
                                         rule_states[chars[i]] = match_state;
                                 break;
                         case MATCH_CHAR:
-                                match_state = render_match_action(false, r, m, code, cases);
+                                match_state = render_match_action(false, r, m, gotos, code, cases);
                                 rule_states[m->match.character] = match_state;
                                 break;
                         case MATCH_RANGE:
-                                match_state = render_match_action(false, r, m, code, cases);
+                                match_state = render_match_action(false, r, m, gotos, code, cases);
                                 range *rg = &m->match.range;
                                 len = rg->end - rg->start;
                                 for(int i = 0 ; i <= len ; i++)
@@ -1365,11 +1397,12 @@ void render_state(state states)
         renderer enums = renderer_new(1);
         renderer enum_names = renderer_new(1);
         renderer cases = renderer_new(1);
+        renderer gotos = renderer_new(CODE_START_LEVEL);
         renderer code = renderer_new(CODE_START_LEVEL);
 
         int first = 1;
         while(rl) {
-                render_rule(rl->rule, map, enums, enum_names, code, cases, first);
+                render_rule(rl->rule, map, enums, enum_names, gotos, code, cases, first);
                 first = 0;
                 rl = rl->next;
         }
@@ -1389,6 +1422,7 @@ void render_state(state states)
         merge_renderer(skelfile, cfile, enums, "<= enums");
         merge_renderer(skelfile, cfile, enum_names, "<= enum_names");
         merge_renderer(skelfile, cfile, cases, "<= cases");
+        merge_renderer(skelfile, cfile, gotos, "<= gotos");
         merge_renderer(skelfile, cfile, code, "<= code");
         copy_until(skelfile, cfile, NULL);
 

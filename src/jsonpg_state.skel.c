@@ -57,6 +57,12 @@ char *states[256] = {
 #endif
 
 jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
+        static void* dispatch_table[0x80] = {
+<= gotos
+
+                [0x7F] = &&Lerror      
+        };
+
         if(p->state == state_initial) {
                 p->push_state = 
                         (p->flags & JSONPG_FLAG_IS_OBJECT)
@@ -65,9 +71,12 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
                 p->state = state_whitespace;
         }
         str_buf_reset(p->write_buf);
+        jsonpg_type result = JSONPG_NONE;
+        state new_state;
 
         while(1) {
-                while(p->current < p->last) {
+                const uint8_t *last = p->last;
+                while(p->current < last) {
                         state current_state = state_map[p->state][*p->current];
 
                         JSONPG_LOG("State change: %s [%02X:%c] => %s\n", 
@@ -76,33 +85,51 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
                                         log_printablechar(*p->current),
                                         states[current_state]);
 
-                        if(!(current_state & 0x80)) {
+                        state jump_state = current_state & 0x7F;
+
+                        //if(!(current_state & 0x80)) {
+                        if(current_state == jump_state) {
                                 p->state = current_state;
                                 p->current++;
                                 continue;
                         }
-
-                        jsonpg_type result = JSONPG_NONE;
-                        state new_state = state_error;
-                        int incr = 1;
-                        switch((int)current_state) {
+                        
+                        //state new_state = state_error;
+                        //int incr = 1;
+                        //switch((int)current_state) {
+                        goto *dispatch_table[jump_state];
 <= code
 
-                        }
+                        Linc:
+                                p->current++;
+                        Lnoinc:
+                                if(new_state == state_error)
+                                        goto Lerror;
 
-                        if(new_state == state_error)
-                                return parse_error(p);
+                                p->state = new_state;
+                                
+                        //
+                        // if(new_state == state_error)
+                        //         return parse_error(p);
+                        //
+                        // JSONPG_LOG("New state: %s, use %s input\n",
+                        //                 states[new_state],
+                        //                 incr ? "next" : "same");
+                        //
+                        // p->state = new_state;
+                        // p->current += incr;
+                        //
+                        // if(result == JSONPG_NONE) {
+                        //         return result;
+                        // }
 
-                        JSONPG_LOG("New state: %s, use %s input\n",
-                                        states[new_state],
-                                        incr ? "next" : "same");
-
-                        p->state = new_state;
-                        p->current += incr;
-
-                        if(result != JSONPG_NONE) {
+                                if(result == JSONPG_NONE)
+                                        continue;
+                                
                                 return result;
-                        }
+
+                        Lerror:
+                                return parse_error(p);
                 }
                 if(p->seen_eof) {
 
