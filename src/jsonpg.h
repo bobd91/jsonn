@@ -52,7 +52,7 @@ typedef struct {
 } jsonpg_string_val;
 
 typedef union {
-        uint64_t integer;
+        long integer;
         double real;
 } jsonpg_number_val;
 
@@ -75,7 +75,7 @@ typedef struct {
 typedef struct {
         int (*boolean)(void *ctx, int is_true);
         int (*null)(void *ctx);
-        int (*integer)(void *ctx, int64_t integer);
+        int (*integer)(void *ctx, long integer);
         int (*real)(void *ctx, double real);
         int (*string)(void *ctx, uint8_t *bytes, size_t length);
         int (*key)(void *ctx, uint8_t *bytes , size_t length);
@@ -93,10 +93,9 @@ struct jsonpg_reader_s {
         void *ctx;
 };
 
-//struct jsonpg_parser_s;
 typedef struct jsonpg_parser_s *jsonpg_parser;
-//struct jsonpg_generator_s;
 typedef struct jsonpg_generator_s *jsonpg_generator;
+typedef struct dom_hdr_s *jsonpg_dom;
 
 
 void jsonpg_set_allocators(
@@ -139,4 +138,9 @@ jsonpg_type jsonpg_parse_reader(
 jsonpg_type jsonpg_parse_next(jsonpg_parser);
 
 jsonpg_value jsonpg_parse_result(jsonpg_parser);
+
+jsonpg_dom jsonpg_dom_new();
+void jsonpg_dom_free(jsonpg_dom);
+jsonpg_generator jsonpg_dom_generator(jsonpg_dom);
+jsonpg_type jsonpg_dom_parse(jsonpg_dom, jsonpg_generator);
 

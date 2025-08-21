@@ -14,3 +14,4 @@
 #include "jsonpg_error.c"
 #include "jsonpg_parse.c"
 #include "jsonpg_state.c"
+#include "jsonpg_dom.c"
