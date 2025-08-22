@@ -1,7 +1,6 @@
 #include <stdint.h>
 
 #define DOM_MIN_SIZE 8192
-#define DOM_SIZE_NEW 1024
 #define NODE_SIZE (sizeof(struct dom_node_s))
 
 typedef struct dom_hdr_s *dom_hdr;
@@ -50,7 +49,7 @@ static dom_hdr dom_hdr_new(unsigned size)
 {
         size = dom_node_size(size + sizeof(struct dom_hdr_s));
 
-        dom_hdr hdr = jsonpg_alloc(size);
+        dom_hdr hdr = pg_alloc(size);
 
         if(!hdr)
                 return NULL;
@@ -220,12 +219,13 @@ jsonpg_dom jsonpg_dom_new()
         return dom;
 }
 
-void jsonpg_dom_free(jsonpg_dom dom)
+void jsonpg_dom_free(void *p)
 {
+        jsonpg_dom dom = p;
         jsonpg_dom next;
         while(dom) {
                 next = dom->next;
-                jsonpg_dealloc(dom);
+                pg_dealloc(dom);
                 dom = next;
         }
 }

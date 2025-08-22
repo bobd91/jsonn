@@ -3,41 +3,41 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "unity.c"
+#include "jsonpg.c"
 
 #define SKELETON_FILE "jsonpg_state.skel.c"
 #define OUTPUT_FILE   "jsonpg_state.c"
 
-typedef struct state_s *state;
-typedef struct class_s *class;
-typedef struct rule_s *rule;
-typedef struct match_s *match;
-typedef struct action_s *action;
-typedef struct builtin_s *builtin;
-typedef struct range_s range;
-typedef struct class_list_s *class_list;
-typedef struct rule_list_s *rule_list;
-typedef struct match_list_s *match_list;
-typedef struct action_list_s *action_list;
-typedef struct renderer_s *renderer;
+typedef struct gen_state_s *gen_state;
+typedef struct gen_class_s *gen_class;
+typedef struct gen_rule_s *gen_rule;
+typedef struct gen_match_s *gen_match;
+typedef struct gen_action_s *gen_action;
+typedef struct gen_builtin_s *gen_builtin;
+typedef struct gen_range_s gen_range;
+typedef struct gen_class_list_s *gen_class_list;
+typedef struct gen_rule_list_s *gen_rule_list;
+typedef struct gen_match_list_s *gen_match_list;
+typedef struct gen_action_list_s *gen_action_list;
+typedef struct gen_renderer_s *gen_renderer;
 
 #define MAX_CHARS_IN_CLASS 22
 #define CODE_START_LEVEL 3
 
-struct state_s {
-        class_list classes;
-        rule_list rules;
+struct gen_state_s {
+        gen_class_list classes;
+        gen_rule_list rules;
 };
 
-struct class_s {
+struct gen_class_s {
         char *name;
         uint8_t chars[MAX_CHARS_IN_CLASS];
 };
 
-struct rule_s {
+struct gen_rule_s {
         char *name;
         int id;
-        match_list matches;
+        gen_match_list matches;
 };
 
 typedef enum {
@@ -47,22 +47,22 @@ typedef enum {
         MATCH_RANGE,
         MATCH_ANY,
         MATCH_VIRTUAL
-} match_type;
+} gen_match_type;
 
-struct range_s {
+struct gen_range_s {
         uint8_t start;
         uint8_t end;
 };
 
-struct match_s {
-        match_type type;
+struct gen_match_s {
+        gen_match_type type;
         union {
                 char *class_name;
-                class class;
+                gen_class class;
                 uint8_t character;
-                range range;
+                gen_range range;
         } match;
-        action action;
+        gen_action action;
         uint8_t id;
 };
 
@@ -71,24 +71,24 @@ typedef enum {
         ACTION_COMMAND,
         ACTION_RULE_NAME,
         ACTION_RULE
-} action_type;
+} gen_action_type;
 
-struct action_s {
-        action_type type;
+struct gen_action_s {
+        gen_action_type type;
         union {
-                action_list actions;
-                builtin command;
+                gen_action_list actions;
+                gen_builtin command;
                 char *rule_name;
-                rule rule;
+                gen_rule rule;
         } action;
 };
 
-typedef struct {
+typedef struct gen_map_s{
         char *name;
         int value;
-} map;
+} gen_map;
 
-#define MAPPING(X) map X[] = {
+#define MAPPING(X) gen_map X[] = {
 #define MAP(X, Y) { X, Y },
 #define MAPPING_END() { NULL, -1 } };
 
@@ -97,7 +97,7 @@ typedef enum {
         TOKEN_MULTI,
         TOKEN_PARTIAL,
         TOKEN_MARKER
-} token_type;
+} gen_token_type;
 
 MAPPING(tokens)
 MAP("null", TOKEN_FINAL)
@@ -123,13 +123,13 @@ MAPPING_END()
 
 // don't need the value but want to validate config names
 MAPPING(configs)
-MAP("comments", JSONN_FLAG_COMMENTS)
-MAP("single_quotes", JSONN_FLAG_SINGLE_QUOTES)
-MAP("unquoted_strings", JSONN_FLAG_UNQUOTED_STRINGS)
-MAP("unquoted_keys", JSONN_FLAG_UNQUOTED_KEYS)
-MAP("trailing_commas", JSONN_FLAG_TRAILING_COMMAS)
-MAP("optional_commas", JSONN_FLAG_OPTIONAL_COMMAS)
-MAP("escape_characters", JSONN_FLAG_ESCAPE_CHARACTERS)
+MAP("comments", JSONPG_FLAG_COMMENTS)
+MAP("single_quotes", JSONPG_FLAG_SINGLE_QUOTES)
+MAP("unquoted_strings", JSONPG_FLAG_UNQUOTED_STRINGS)
+MAP("unquoted_keys", JSONPG_FLAG_UNQUOTED_KEYS)
+MAP("trailing_commas", JSONPG_FLAG_TRAILING_COMMAS)
+MAP("optional_commas", JSONPG_FLAG_OPTIONAL_COMMAS)
+MAP("escape_characters", JSONPG_FLAG_ESCAPE_CHARACTERS)
 MAPPING_END()
 
 typedef enum {
@@ -176,40 +176,40 @@ MAP("swap", CMD_SWAP)
 MAP("ifconfig", CMD_IF_CONFIG)
 MAPPING_END()
 
-typedef struct arg_list_s *arg_list;
-struct arg_list_s {
+typedef struct gen_arg_list_s *arg_list;
+struct gen_arg_list_s {
         char *arg;
         arg_list next;
 };
 
-struct builtin_s {
+struct gen_builtin_s {
         builtin_type type;
         char *name;
         arg_list args;
-        token_type token_type;  // multiple tokens, same type
+        gen_token_type token_type;  // multiple tokens, same type
 };
 
-struct class_list_s {
-        class class;
-        class_list next;
+struct gen_class_list_s {
+        gen_class class;
+        gen_class_list next;
 };
 
-struct rule_list_s {
-        rule rule;
-        rule_list next;
+struct gen_rule_list_s {
+        gen_rule rule;
+        gen_rule_list next;
 };
 
-struct match_list_s {
-        match match;
-        match_list next;
+struct gen_match_list_s {
+        gen_match match;
+        gen_match_list next;
 };
 
-struct action_list_s {
-        action action;
-        action_list next;
+struct gen_action_list_s {
+        gen_action action;
+        gen_action_list next;
 };
 
-struct renderer_s {
+struct gen_renderer_s {
         int level;
         int startlevel;
         str_buf sbuf;
@@ -224,9 +224,9 @@ int str_equal(char *s1, char *s2)
         return 0 == strcmp(s1, s2);
 }
 
-int map_lookup(map *mp, char *name)
+int map_lookup(gen_map *mp, char *name)
 {
-        map m = *mp++;
+        gen_map m = *mp++;
         while(m.name) {
                 if(str_equal(name, m.name))
                         return m.value;
@@ -262,35 +262,35 @@ void *fmalloc(size_t size) {
         return p;
 }
 
-char result_char(jsonn_parser p)
+char result_char(jsonpg_parser p)
 {
-        return (char)*jsonn_parse_result(p).string.bytes;
+        return (char)*jsonpg_result(p).string.bytes;
 }
 
-char *result_str(jsonn_parser p)
+char *result_str(jsonpg_parser p)
 {
-        jsonn_string_val s = jsonn_parse_result(p).string;
+        jsonpg_string_val s = jsonpg_result(p).string;
         char *ptr = fmalloc(1 + s.length);
         memcpy(ptr, s.bytes, s.length);
         ptr[s.length] = '\0';
         return ptr;
 }
 
-void expect_type(jsonn_type t1, jsonn_type t2)
+void expect_type(jsonpg_type t1, jsonpg_type t2)
 {
         if(t1 != t2)
                 fail("Expected type %d, got %d", t2, t1);
 }
 
-void expect_next(jsonn_type t, jsonn_parser p)
+void expect_next(jsonpg_type t, jsonpg_parser p)
 {
-        jsonn_type t1 = jsonn_parse_next(p);
+        jsonpg_type t1 = jsonpg_parse_next(p);
         expect_type(t1, t);
 }
 
-void append_class(state states, class c)
+void append_class(gen_state states, gen_class c)
 {
-        class_list cl = fmalloc(sizeof(struct class_list_s));
+        gen_class_list cl = fmalloc(sizeof(struct gen_class_list_s));
         cl->class = c;
         cl->next = NULL;
 
@@ -299,8 +299,8 @@ void append_class(state states, class c)
                 return;
         }
 
-        class_list next = states->classes;
-        class_list last = next;
+        gen_class_list next = states->classes;
+        gen_class_list last = next;
         while(next) {
                 if(str_equal(next->class->name, c->name))
                         fail("Duplicate class name '%s'", c->name);
@@ -310,9 +310,9 @@ void append_class(state states, class c)
         last->next = cl;
 }
 
-void append_rule(state states, rule r)
+void append_rule(gen_state states, gen_rule r)
 {
-        rule_list rl = fmalloc(sizeof(struct rule_list_s));
+        gen_rule_list rl = fmalloc(sizeof(struct gen_rule_list_s));
         rl->rule = r;
         rl->next = NULL;
 
@@ -321,8 +321,8 @@ void append_rule(state states, rule r)
                 return;
         }
 
-        rule_list next = states->rules;
-        rule_list last = next;
+        gen_rule_list next = states->rules;
+        gen_rule_list last = next;
         while(next) {
                 if(str_equal(next->rule->name, r->name))
                         fail("Duplicate rule name '%s'", r->name);
@@ -332,13 +332,13 @@ void append_rule(state states, rule r)
         last->next = rl;
 }       
                 
-jsonn_type parse_args(jsonn_parser p, builtin b, int have_next)
+jsonpg_type parse_args(jsonpg_parser p, gen_builtin b, int have_next)
 {
-        jsonn_type type;
+        jsonpg_type type;
         b->args = NULL;
         arg_list *al = &b->args;
-        while(have_next || JSONN_STRING == (type = jsonn_parse_next(p))) {
-                (*al) = fmalloc(sizeof(struct arg_list_s));
+        while(have_next || JSONPG_STRING == (type = jsonpg_parse_next(p))) {
+                (*al) = fmalloc(sizeof(struct gen_arg_list_s));
                 (*al)->next = NULL;
                 (*al)->arg = result_str(p);
                 al = &(*al)->next;
@@ -348,56 +348,56 @@ jsonn_type parse_args(jsonn_parser p, builtin b, int have_next)
         return type;
 }
 
-builtin parse_builtin(jsonn_parser p)
+gen_builtin parse_builtin(jsonpg_parser p)
 {
         // validate here as best to combine multiple ifconfig flags early
         // we have nowhere to put multiple config flag strings
         // but we can or all of the flags into one value
 
-        builtin b = fmalloc(sizeof(struct builtin_s));
+        gen_builtin b = fmalloc(sizeof(struct gen_builtin_s));
 
-        jsonn_type type = jsonn_parse_next(p);
-        expect_type(type, JSONN_KEY);
+        jsonpg_type type = jsonpg_parse_next(p);
+        expect_type(type, JSONPG_KEY);
         char *key = result_str(p);
 
         b->name = key;
         b->type = map_lookup(builtins, key);
         arg_type arg_type = arg_types[b->type];
 
-        type = jsonn_parse_next(p);
-        if(type == JSONN_BEGIN_ARRAY) {
+        type = jsonpg_parse_next(p);
+        if(type == JSONPG_BEGIN_ARRAY) {
                 if(!(arg_type & ARG_OR))
                         fail("Builtin command does not support multiple arguments");
 
                 type = parse_args(p, b, 0);
-                expect_type(type, JSONN_END_ARRAY);
-                type = jsonn_parse_next(p);
-        } else if(type == JSONN_STRING) {
+                expect_type(type, JSONPG_END_ARRAY);
+                type = jsonpg_parse_next(p);
+        } else if(type == JSONPG_STRING) {
                 type = parse_args(p, b, 1);
         } else {
                 fail("Unexpected input token when parsing builtin");
         }
-        expect_type(type, JSONN_END_OBJECT);
+        expect_type(type, JSONPG_END_OBJECT);
 
         return b;
 }
 
-action_list parse_action_list(jsonn_parser);
+gen_action_list parse_action_list(jsonpg_parser);
 
-action parse_action(jsonn_parser p)
+gen_action parse_action(jsonpg_parser p)
 {
-        action act = fmalloc(sizeof(struct action_s));
-        jsonn_type type = jsonn_parse_next(p);
+        gen_action act = fmalloc(sizeof(struct gen_action_s));
+        jsonpg_type type = jsonpg_parse_next(p);
         switch(type) {
-                case JSONN_STRING:
+                case JSONPG_STRING:
                         act->type = ACTION_RULE_NAME;
                         act->action.rule_name = result_str(p);
                         break;
-                case JSONN_BEGIN_OBJECT:
+                case JSONPG_BEGIN_OBJECT:
                         act->type = ACTION_COMMAND;
                         act->action.command = parse_builtin(p);
                         break;
-                case JSONN_BEGIN_ARRAY:
+                case JSONPG_BEGIN_ARRAY:
                         act->type = ACTION_LIST;
                         act->action.actions = parse_action_list(p);
                         break;
@@ -407,14 +407,14 @@ action parse_action(jsonn_parser p)
         return act;
 }
 
-action_list parse_action_list(jsonn_parser p)
+gen_action_list parse_action_list(jsonpg_parser p)
 {
-        action_list current = NULL;
-        action_list head = NULL;
-        action_list prev = NULL;
-        action act;
+        gen_action_list current = NULL;
+        gen_action_list head = NULL;
+        gen_action_list prev = NULL;
+        gen_action act;
         while((act = parse_action(p))) {
-                current = fmalloc(sizeof(struct action_list_s));
+                current = fmalloc(sizeof(struct gen_action_list_s));
                 if(!head)
                         head = current;
                 current->action = act;
@@ -425,14 +425,14 @@ action_list parse_action_list(jsonn_parser p)
         return head;
 }
 
-match parse_match(jsonn_parser p)
+gen_match parse_match(jsonpg_parser p)
 {
-        jsonn_type type = jsonn_parse_next(p);
-        if(type == JSONN_END_OBJECT)
+        jsonpg_type type = jsonpg_parse_next(p);
+        if(type == JSONPG_END_OBJECT)
                 return NULL;
 
         char *chars = result_str(p);
-        match m = fmalloc(sizeof(struct match_s));
+        gen_match m = fmalloc(sizeof(struct gen_match_s));
         m->type = -1;
         m->id = 0;
         int n = strlen(chars);
@@ -478,15 +478,15 @@ match parse_match(jsonn_parser p)
 }
 
 
-match_list parse_match_list(jsonn_parser p) {
-        expect_next(JSONN_BEGIN_OBJECT, p);
+gen_match_list parse_match_list(jsonpg_parser p) {
+        expect_next(JSONPG_BEGIN_OBJECT, p);
 
-        match_list current = NULL;
-        match_list head = NULL;
-        match_list prev = NULL;
-        match m;
+        gen_match_list current = NULL;
+        gen_match_list head = NULL;
+        gen_match_list prev = NULL;
+        gen_match m;
         while((m = parse_match(p))) {
-                current = fmalloc(sizeof(struct match_list_s));
+                current = fmalloc(sizeof(struct gen_match_list_s));
                 if(!head)
                         head = current;
                 current->match = m;
@@ -500,49 +500,49 @@ match_list parse_match_list(jsonn_parser p) {
 
 
 
-state create_states()
+gen_state create_states()
 {
-        return malloc(sizeof(struct state_s));
+        return malloc(sizeof(struct gen_state_s));
 }
 
-void parse_class_chars(class c, jsonn_parser p)
+void parse_class_chars(gen_class c, jsonpg_parser p)
 {
-        expect_next(JSONN_BEGIN_ARRAY, p);
-        jsonn_type type = jsonn_parse_next(p);
+        expect_next(JSONPG_BEGIN_ARRAY, p);
+        jsonpg_type type = jsonpg_parse_next(p);
         int i = 0;
-        while(type == JSONN_STRING) {
+        while(type == JSONPG_STRING) {
                 if(i >= MAX_CHARS_IN_CLASS)
                         fail("Too many characters in character class '%s'", c->name);
                 c->chars[i++] = result_char(p);
-                type = jsonn_parse_next(p);
+                type = jsonpg_parse_next(p);
         }
         c->chars[i] = '\0';
-        expect_type(type, JSONN_END_ARRAY);
+        expect_type(type, JSONPG_END_ARRAY);
 }
 
-class parse_class(char *name, jsonn_parser p)
+gen_class parse_class(char *name, jsonpg_parser p)
 {
-        class c = fmalloc(sizeof(struct class_s));
+        gen_class c = fmalloc(sizeof(struct gen_class_s));
         c->name = name;
         parse_class_chars(c, p);
         return c;
 }
 
-void add_class(state states, char *name, jsonn_parser p)
+void add_class(gen_state states, char *name, jsonpg_parser p)
 {
         append_class(states, parse_class(name, p));
 }
 
-int rule_is_virtual(rule r)
+int rule_is_virtual(gen_rule r)
 {
         // rule with single "???" match clause
         return r->matches->match->type == MATCH_VIRTUAL
                 && !(r->matches->next);
 }
 
-rule parse_rule(char *name, jsonn_parser p)
+gen_rule parse_rule(char *name, jsonpg_parser p)
 {
-        rule r = fmalloc(sizeof(struct rule_s));
+        gen_rule r = fmalloc(sizeof(struct gen_rule_s));
         r->name = name;
         r->matches = parse_match_list(p);
         r->id = rule_is_virtual(r) ? -1 : gen_rule_id++;
@@ -550,7 +550,7 @@ rule parse_rule(char *name, jsonn_parser p)
         return r;
 }
 
-void add_rule(state states, char *name, jsonn_parser p)
+void add_rule(gen_state states, char *name, jsonpg_parser p)
 {
         append_rule(states, parse_rule(name, p));
 }
@@ -559,9 +559,9 @@ void add_rule(state states, char *name, jsonn_parser p)
 
 
 
-class find_class(state states, char *name)
+gen_class find_class(gen_state states, char *name)
 {
-        class_list cl = states->classes;
+        gen_class_list cl = states->classes;
         while(cl) {
                 if(str_equal(name, cl->class->name))
                         return cl->class;
@@ -570,9 +570,9 @@ class find_class(state states, char *name)
         return NULL;
 }
 
-rule find_rule(state states, char *name)
+gen_rule find_rule(gen_state states, char *name)
 {
-        rule_list rl = states->rules;
+        gen_rule_list rl = states->rules;
         while(rl) {
                 if(str_equal(name, rl->rule->name)) {
                         return rl->rule;
@@ -582,7 +582,7 @@ rule find_rule(state states, char *name)
         return NULL;
 }
 
-int validate_builtin(builtin b)
+int validate_builtin(gen_builtin b)
 {
         if(b->type == -1) {
                 warn("Unknown builtin '%s'", b->name);
@@ -605,7 +605,7 @@ int validate_builtin(builtin b)
                 break;
         default:
                 arg_list al = b->args;
-                token_type tt;
+                gen_token_type tt;
                 while(al) {
                         tt = map_lookup(tokens, al->arg);
                         if(tt == -1) {
@@ -625,12 +625,12 @@ int validate_builtin(builtin b)
         return 1;
 }
 
-int validate_action(state states, action a)
+int validate_action(gen_state states, gen_action a)
 {
         int res = 1;
         switch(a->type) {
                 case ACTION_LIST:
-                        action_list al = a->action.actions;
+                        gen_action_list al = a->action.actions;
                         while(al) {
                                 res &= validate_action(states, al->action);
                                 al = al->next;
@@ -641,7 +641,7 @@ int validate_action(state states, action a)
                         break;
                 case ACTION_RULE_NAME:
                         char *name = a->action.rule_name;
-                        rule r = find_rule(states, name);
+                        gen_rule r = find_rule(states, name);
                         if(!r) {
                                 warn("Unknown rule '%s'", name);
                                 res = 0;
@@ -655,12 +655,12 @@ int validate_action(state states, action a)
         return res;
 }
 
-int validate_match(state states, match m)
+int validate_match(gen_state states, gen_match m)
 {
         int res = 1;
         if(m->type == MATCH_CLASS_NAME) {
                 char *name = m->match.class_name;
-                class c = find_class(states, name);
+                gen_class c = find_class(states, name);
                 if(!c) {
                         warn("Unknown class '%s'", name);
                         res = 0;
@@ -672,10 +672,10 @@ int validate_match(state states, match m)
         return res;
 }
 
-int validate_rule(state states, rule r)
+int validate_rule(gen_state states, gen_rule r)
 {
         int res = 1;
-        match_list ml = r->matches;
+        gen_match_list ml = r->matches;
         while(ml) {
                 res &= validate_match(states, ml->match);
                 ml = ml->next;
@@ -683,10 +683,10 @@ int validate_rule(state states, rule r)
         return res;
 }
 
-int validate_states(state states) 
+int validate_states(gen_state states) 
 {
         int res = 1;
-        rule_list rl = states->rules;
+        gen_rule_list rl = states->rules;
         while(rl) {
                 res &= validate_rule(states, rl->rule);
                 rl = rl->next;
@@ -695,26 +695,26 @@ int validate_states(state states)
 }
 
 
-state parse_state(jsonn_parser p)
+gen_state parse_state(jsonpg_parser p)
 {
-        state states = create_states();
+        gen_state states = create_states();
 
-        jsonn_type type = jsonn_parse_next(p);
-        while(JSONN_KEY == type) {
+        jsonpg_type type = jsonpg_parse_next(p);
+        while(JSONPG_KEY == type) {
                 char *key = result_str(p);
                 if('$' == *key) {
                         add_class(states, key + 1, p);
                 } else {
                         add_rule(states, key, p);
                 }
-                type = jsonn_parse_next(p);
+                type = jsonpg_parse_next(p);
         }
-        expect_type(JSONN_END_OBJECT, type);
+        expect_type(JSONPG_END_OBJECT, type);
 
         return states;
 }
 
-void dump_command(builtin command)
+void dump_command(gen_builtin command)
 {
         printf("  Command: %s\n", command->name);
         arg_list al = command->args;
@@ -724,16 +724,16 @@ void dump_command(builtin command)
         }
 }
 
-void dump_action_rule(rule r)
+void dump_action_rule(gen_rule r)
 {
         printf("  Action Rule: %s\n", r->name);
 }
 
-void dump_action(action a)
+void dump_action(gen_action a)
 {
         switch(a->type) {
                 case ACTION_LIST:
-                        action_list al = a->action.actions;
+                        gen_action_list al = a->action.actions;
                         while(al) {
                                 dump_action(al->action);
                                 al = al->next;
@@ -751,7 +751,7 @@ void dump_action(action a)
 
 }
 
-void dump_match(match m)
+void dump_match(gen_match m)
 {
         switch(m->type) {
                 case MATCH_CLASS:
@@ -765,7 +765,7 @@ void dump_match(match m)
                                 printf(" Match char '%c'\n", (int)c);
                         break;
                 case MATCH_RANGE:
-                        range *r = &m->match.range;
+                        gen_range *r = &m->match.range;
                         printf(" Match range 0x%02X-0x%02X\n", r->start, r->end);
                         break;
                 case MATCH_ANY:
@@ -782,7 +782,7 @@ void dump_match(match m)
 
 }
 
-void dump_matches(match_list ml)
+void dump_matches(gen_match_list ml)
 {
         while(ml) {
                 dump_match(ml->match);
@@ -790,14 +790,14 @@ void dump_matches(match_list ml)
         }
 }
 
-void dump_rule(rule r)
+void dump_rule(gen_rule r)
 {
         printf("Rule: %s [%d]\n", r->name, (unsigned)r->id);
         dump_matches(r->matches);
         printf("\n");
 }
 
-void dump_class(class c)
+void dump_class(gen_class c)
 {
         printf("Class: %s\n", c->name);
         uint8_t *chars = c->chars;
@@ -818,30 +818,30 @@ void dump_class(class c)
         printf("\n\n");
 }
 
-void dump_state(state states) {
-        class_list cl = states->classes;
+void dump_state(gen_state states) {
+        gen_class_list cl = states->classes;
         while(cl) {
                 dump_class(cl->class);
                 cl = cl->next;
         }
-        rule_list rl = states->rules;
+        gen_rule_list rl = states->rules;
         while(rl) {
                 dump_rule(rl->rule);
                 rl = rl->next;
         }
 }
 
-void render(renderer r, char *chars)
+void render(gen_renderer r, char *chars)
 {
         str_buf_append_chars(r->sbuf, chars);
 }
 
-void render_c(renderer r, uint8_t c)
+void render_c(gen_renderer r, uint8_t c)
 {
         str_buf_append(r->sbuf, &c, 1);
 }
 
-void render_indent(renderer r, char *chars)
+void render_indent(gen_renderer r, char *chars)
 {
         static char indent[] = "        ";
         render(r, "\n");
@@ -850,18 +850,18 @@ void render_indent(renderer r, char *chars)
         render(r, chars);
 }
 
-void render_level(renderer r, int inc)
+void render_level(gen_renderer r, int inc)
 {
         r->level += inc;
 }
 
-void render_startlevel(renderer r, int l)
+void render_startlevel(gen_renderer r, int l)
 {
         r->level = l;
         r->startlevel = l;
 }
 
-void write_renderer(FILE *stream, renderer r)
+void write_renderer(FILE *stream, gen_renderer r)
 {
         uint8_t *str;
         int len = str_buf_content(r->sbuf, &str);
@@ -869,14 +869,14 @@ void write_renderer(FILE *stream, renderer r)
         fprintf(stream, "%.*s", len - 1, 1 + (char *)str);
 }
 
-void render_x(renderer r, uint8_t x)
+void render_x(gen_renderer r, uint8_t x)
 {
         render(r, "0x");
         render_c(r, gen_hex_chars[x >> 4]);
         render_c(r, gen_hex_chars[x & 0xF]);
 }        
 
-void render_enum(rule r, renderer enums, renderer enum_names, int first) 
+void render_enum(gen_rule r, gen_renderer enums, gen_renderer enum_names, int first) 
 {
         if(r->id < 0)
                 // will mess up first processing if first entry is virtual,
@@ -898,7 +898,7 @@ void render_enum(rule r, renderer enums, renderer enum_names, int first)
         render(enum_names, "\"");
 }
 
-void render_map_values(rule r, uint8_t *bytes, renderer map, int first_map)
+void render_map_values(gen_rule r, uint8_t *bytes, gen_renderer map, int first_map)
 {
         if(r->id < 0)
                 return;
@@ -916,19 +916,19 @@ void render_map_values(rule r, uint8_t *bytes, renderer map, int first_map)
         render(map, "}");
 }
 
-int is_if_command(builtin command)
+int is_if_command(gen_builtin command)
 {
         return 0 == strncmp("if", command->name, 2);
 }
 
-void render_call(char *prefix, char *arg, renderer code)
+void render_call(char *prefix, char *arg, gen_renderer code)
 {
         render_indent(code, prefix);
         render(code, arg);
         render(code, ");");
 }
 
-void render_if(int not, char *prefix, arg_list args, char *close, renderer code)
+void render_if(int not, char *prefix, arg_list args, char *close, gen_renderer code)
 {
         int bracket = not && args->next != NULL;
         render_indent(code, "if(");
@@ -957,7 +957,7 @@ void render_if(int not, char *prefix, arg_list args, char *close, renderer code)
         render_level(code, 1);
 }
 
-void render_ifpeek(int not, builtin command, renderer code)
+void render_ifpeek(int not, gen_builtin command, gen_renderer code)
 {
         if(command->token_type == TOKEN_MULTI) {
                 render_if(not, "in_", command->args, "()", code);
@@ -966,7 +966,7 @@ void render_ifpeek(int not, builtin command, renderer code)
         }
 }
 
-void render_alloc_error(renderer code)
+void render_alloc_error(gen_renderer code)
 {
         render(code, " {");
         render_level(code, 1);
@@ -977,7 +977,7 @@ void render_alloc_error(renderer code)
         render_indent(code, "}");
 }
 
-void render_builtin(int is_virtual, builtin command, renderer code)
+void render_builtin(int is_virtual, gen_builtin command, gen_renderer code)
 {
         arg_list args = command->args;
         switch(command->type) {
@@ -1058,7 +1058,7 @@ void render_builtin(int is_virtual, builtin command, renderer code)
         }
 }
 
-void render_rule_match(int is_virtual, rule r, renderer code)
+void render_rule_match(int is_virtual, gen_rule r, gen_renderer code)
 {
         // if(is_virtual)
         //         render_indent(code, "incr = 0;");
@@ -1072,9 +1072,9 @@ void render_rule_match(int is_virtual, rule r, renderer code)
         render(code, is_virtual ? "noinc;" : "inc;");
 }
 
-void render_actions(int, action_list, renderer);
+void render_actions(int, gen_action_list, gen_renderer);
 
-void render_action(int is_virtual, action a, renderer code)
+void render_action(int is_virtual, gen_action a, gen_renderer code)
 {
         switch(a->type) {
                 case ACTION_LIST:
@@ -1084,7 +1084,7 @@ void render_action(int is_virtual, action a, renderer code)
                         render_builtin(is_virtual, a->action.command, code);
                         break;
                 case ACTION_RULE:
-                        rule r = a->action.rule;
+                        gen_rule r = a->action.rule;
                         if(r->id < 0) {
                                 render_action(is_virtual, r->matches->match->action, code);
                         } else {
@@ -1096,7 +1096,7 @@ void render_action(int is_virtual, action a, renderer code)
         }
 }
 
-void render_if_block(int is_virtual, action_list al, renderer code)
+void render_if_block(int is_virtual, gen_action_list al, gen_renderer code)
 {
         render_action(is_virtual, al->action, code);
         al = al->next;
@@ -1121,7 +1121,7 @@ void render_if_block(int is_virtual, action_list al, renderer code)
         }
 }
 
-int is_if_action(action a)
+int is_if_action(gen_action a)
 {
         if(a->type == ACTION_COMMAND)
                 return is_if_command(a->action.command);
@@ -1129,7 +1129,7 @@ int is_if_action(action a)
                 return 0;
 }
 
-void render_actions(int is_virtual, action_list al, renderer code)
+void render_actions(int is_virtual, gen_action_list al, gen_renderer code)
 {
         if(is_if_action(al->action)) {
                 render_if_block(is_virtual, al, code);
@@ -1143,14 +1143,14 @@ void render_actions(int is_virtual, action_list al, renderer code)
 
 void render_action_comment(
                 int is_virtual,
-                renderer code)
+                gen_renderer code)
 {
         render_indent(code, "// ");
         if(is_virtual)
                 render(code, "[virtual] ");
 }
 
-void render_action_desc(rule r, match m, renderer rend, int escape)
+void render_action_desc(gen_rule r, gen_match m, gen_renderer rend, int escape)
 {
         render(rend, r->name);
         render(rend, "/");
@@ -1187,11 +1187,11 @@ void render_action_desc(rule r, match m, renderer rend, int escape)
 
 uint8_t render_new_action(
                 int is_virtual,
-                rule r,
-                match m,
-                renderer gotos,
-                renderer code, 
-                renderer cases)
+                gen_rule r,
+                gen_match m,
+                gen_renderer gotos,
+                gen_renderer code, 
+                gen_renderer cases)
 {
         uint8_t s = gen_action_id++;
         
@@ -1219,7 +1219,7 @@ uint8_t render_new_action(
         return s;
 }
 
-int render_previous(renderer r, char *txt) {
+int render_previous(gen_renderer r, char *txt) {
         int count = strlen(txt);
         if(r->sbuf->count >= count) {
                 return 0 == memcmp(txt, 
@@ -1231,16 +1231,16 @@ int render_previous(renderer r, char *txt) {
 
 uint8_t render_match_action(
                 int is_virtual,
-                rule r,
-                match m,
-                renderer gotos,
-                renderer code,
-                renderer cases)
+                gen_rule r,
+                gen_match m,
+                gen_renderer gotos,
+                gen_renderer code,
+                gen_renderer cases)
 {
         if(m->id)
                 return m->id;
 
-        action a = m->action;
+        gen_action a = m->action;
         switch(a->type) {
                 case ACTION_LIST:
                         m->id = render_new_action(is_virtual, r, m, gotos, code, cases);
@@ -1261,7 +1261,7 @@ uint8_t render_match_action(
                         render_level(code, -1);
                         break;
                 case ACTION_RULE:
-                        rule ar = a->action.rule;
+                        gen_rule ar = a->action.rule;
                         if(ar->id < 0) {
                                 m->id = render_match_action(
                                                 is_virtual, 
@@ -1282,11 +1282,11 @@ uint8_t render_match_action(
         return m->id;
 }
 
-uint8_t render_rule_default_state(rule r, renderer gotos, renderer code, renderer cases)
+uint8_t render_rule_default_state(gen_rule r, gen_renderer gotos, gen_renderer code, gen_renderer cases)
 {
-        match_list ml = r->matches;
+        gen_match_list ml = r->matches;
         while(ml) {
-                match m = ml->match;
+                gen_match m = ml->match;
                 if(m->type == MATCH_ANY) {
                         return render_match_action(false, r, m, gotos, code, cases);
                         break;
@@ -1305,13 +1305,13 @@ uint8_t render_rule_default_state(rule r, renderer gotos, renderer code, rendere
 
 
 void render_rule(
-                rule r, 
-                renderer map, 
-                renderer enums, 
-                renderer enum_names,
-                renderer gotos,
-                renderer code, 
-                renderer cases,
+                gen_rule r, 
+                gen_renderer map, 
+                gen_renderer enums, 
+                gen_renderer enum_names,
+                gen_renderer gotos,
+                gen_renderer code, 
+                gen_renderer cases,
                 int first)
 {
         if(r->id < 0)
@@ -1320,13 +1320,13 @@ void render_rule(
         static uint8_t rule_states[256];
 
         render_enum(r, enums, enum_names, first);
-        match_list ml = r->matches;
+        gen_match_list ml = r->matches;
         uint8_t def_state = render_rule_default_state(r, gotos, code, cases);
         memset(rule_states, def_state, 256);
 
         while(ml) {
                 int len;
-                match m = ml->match;
+                gen_match m = ml->match;
                 uint8_t match_state;
                 switch(m->type) {
                         case MATCH_CLASS:
@@ -1342,7 +1342,7 @@ void render_rule(
                                 break;
                         case MATCH_RANGE:
                                 match_state = render_match_action(false, r, m, gotos, code, cases);
-                                range *rg = &m->match.range;
+                                gen_range *rg = &m->match.range;
                                 len = rg->end - rg->start;
                                 for(int i = 0 ; i <= len ; i++)
                                         rule_states[rg->start + i] = match_state;
@@ -1359,12 +1359,12 @@ void render_rule(
         render_map_values(r, rule_states, map, first);
 }
 
-renderer renderer_new(int level)
+gen_renderer renderer_new(int level)
 {
-        renderer r = fmalloc(sizeof(struct renderer_s));
+        gen_renderer r = fmalloc(sizeof(struct gen_renderer_s));
         r->level = level;
         r->startlevel = level;
-        r->sbuf = str_buf_new();
+        r->sbuf = str_buf_new(0);
         return r;
 }
 
@@ -1384,21 +1384,21 @@ void copy_until(FILE *in, FILE *out, char *tag)
                 fail("Tag %s not found", tag);
 }
 
-void merge_renderer(FILE *in, FILE *out, renderer r, char *tag)
+void merge_renderer(FILE *in, FILE *out, gen_renderer r, char *tag)
 {
         copy_until(in, out, tag);
         write_renderer(out, r);
 }
 
-void render_state(state states)
+void render_state(gen_state states)
 {
-        rule_list rl = states->rules;
-        renderer map = renderer_new(1);
-        renderer enums = renderer_new(1);
-        renderer enum_names = renderer_new(1);
-        renderer cases = renderer_new(1);
-        renderer gotos = renderer_new(CODE_START_LEVEL);
-        renderer code = renderer_new(CODE_START_LEVEL);
+        gen_rule_list rl = states->rules;
+        gen_renderer map = renderer_new(1);
+        gen_renderer enums = renderer_new(1);
+        gen_renderer enum_names = renderer_new(1);
+        gen_renderer cases = renderer_new(1);
+        gen_renderer gotos = renderer_new(CODE_START_LEVEL);
+        gen_renderer code = renderer_new(CODE_START_LEVEL);
 
         int first = 1;
         while(rl) {
@@ -1446,12 +1446,12 @@ int main(int argc, char *argv[])
                 exit(1);
         }
 
-        jsonn_parser p = jsonn_new(NULL);
-        jsonn_type type = jsonn_parse_stream(p, stream, NULL);
-        if(type != JSONN_EOF && type != JSONN_ERROR) {
-                type = jsonn_parse_next(p);
-                if(JSONN_BEGIN_OBJECT == type) {
-                        state s = parse_state(p);
+        jsonpg_parser p = jsonpg_parser_new(NULL);
+        jsonpg_type type = jsonpg_parse_stream(p, stream, NULL);
+        if(type != JSONPG_EOF && type != JSONPG_ERROR) {
+                type = jsonpg_parse_next(p);
+                if(JSONPG_BEGIN_OBJECT == type) {
+                        gen_state s = parse_state(p);
                         if(validate_states(s)) {
                                 if(dump) {
                                         dump_state(s);
@@ -1465,13 +1465,13 @@ int main(int argc, char *argv[])
                         printf("Expecting begin object, got: %d\n", type);
                         exit(1);
                 }
-                type = jsonn_parse_next(p);
+                type = jsonpg_parse_next(p);
         }
-        if(type != JSONN_EOF) {
-                if(type == JSONN_ERROR) 
+        if(type != JSONPG_EOF) {
+                if(type == JSONPG_ERROR) 
                         printf("Error %d at %ld\n", 
-                                        jsonn_parse_result(p).error.code, 
-                                        jsonn_parse_result(p).error.at);
+                                        jsonpg_result(p).error.code, 
+                                        jsonpg_result(p).error.at);
                 else
                         printf("Expecting EOF, got: %d\n", type);
                 exit(1);

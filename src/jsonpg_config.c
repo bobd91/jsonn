@@ -36,14 +36,10 @@
  *
  * Flags:
  *
- * replace_illformed_utf8
+ * replace_illformed_utf8 (not implemented yet)
  *      the Unicode standard recommends that illformed utf8
  *      sequences by replaced by the unicode replacement character
  *      default behaviour is to reject illformed utf8
- * 
- *      In the event of multiple replacements, there may be
- *      insufficient space to make a further replacement.
- *      In this case the parse will fail.
  *
  * comments
  *      C style comments are allowed within whitespace

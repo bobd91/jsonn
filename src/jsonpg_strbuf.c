@@ -12,7 +12,7 @@ struct str_buf_s {
 
 static str_buf str_buf_empty()
 {
-        str_buf sbuf = jsonpg_alloc(sizeof(struct str_buf_s));
+        str_buf sbuf = pg_alloc(sizeof(struct str_buf_s));
         if(!sbuf)
                 return NULL;
         sbuf->bytes = NULL;
@@ -27,34 +27,38 @@ static str_buf str_buf_reset(str_buf sbuf)
         return sbuf;
 }
 
-static str_buf str_buf_alloc_new(str_buf sbuf)
+static str_buf str_buf_alloc(str_buf sbuf, uint32_t size)
 {
-        sbuf->bytes = jsonpg_alloc(JSONPG_BUF_SIZE);
+        size = size >= JSONPG_BUF_SIZE ? size : JSONPG_BUF_SIZE;
+
+        sbuf->bytes = pg_alloc(size);
         if(!sbuf->bytes) {
-                jsonpg_dealloc(sbuf);
+                pg_dealloc(sbuf);
                 return NULL;
         }
-        sbuf->size = JSONPG_BUF_SIZE;
+        sbuf->size = size;
 
         return sbuf;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-static str_buf str_buf_new()
+static str_buf str_buf_alloc_new(str_buf sbuf)
+{
+        return str_buf_alloc(sbuf, JSONPG_BUF_SIZE);
+}
+
+static str_buf str_buf_new(uint32_t size)
 {
         str_buf sbuf = str_buf_empty();
         if(!sbuf)
                 return NULL;
-        return str_buf_alloc_new(sbuf);
+        return str_buf_alloc(sbuf, size);
 }
-#pragma GCC diagnostic pop
 
 static void str_buf_free(str_buf sbuf)
 {
         if(sbuf) {
-                jsonpg_dealloc(sbuf->bytes);
-                jsonpg_dealloc(sbuf);
+                pg_dealloc(sbuf->bytes);
+                pg_dealloc(sbuf);
         }
 }
 
@@ -69,7 +73,7 @@ static int str_buf_append(str_buf sbuf, uint8_t *bytes, size_t count)
                 do {
                         sbuf->size <<= 1;
                 } while(new_count > sbuf->size);
-                uint8_t *b = jsonpg_realloc(sbuf->bytes, sbuf->size);
+                uint8_t *b = pg_realloc(sbuf->bytes, sbuf->size);
                 if(!b) {
                         str_buf_free(sbuf);
                         return -1;
@@ -106,17 +110,19 @@ static size_t str_buf_content(str_buf sbuf, uint8_t **bytes)
                 return 0;
         }
 }
-//
-// static char *str_buf_content_str(str_buf sbuf)
-// {
-//         if(sbuf->count) {
-//                 if(sbuf->bytes[sbuf->count])
-//                         str_buf_append_c(sbuf, '\0');
-//                 return (char *)sbuf->bytes;
-//         }
-//         return "";
-// }
-//
+
+static char *str_buf_content_str(str_buf sbuf)
+{
+        if(sbuf->count) {
+                if(sbuf->bytes[sbuf->count])
+                        str_buf_append_c(sbuf, '\0');
+                return (char *)sbuf->bytes;
+        }
+        return "";
+}
+
+
+
 
 
 

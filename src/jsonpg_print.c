@@ -5,7 +5,7 @@
 
 // TODO error handling of writer errors
 
-char number_buffer[32];
+static char number_buffer[32];
 
 typedef struct jsonpg_print_ctx_s *jsonpg_print_ctx;
 typedef int (*write_fn)(void *, uint8_t *, size_t);
@@ -303,7 +303,7 @@ static jsonpg_callbacks printer_callbacks = {
         .error = print_error
 };
 
-jsonpg_generator print_generator(write_fn write, void *write_ctx, int pretty, int stack_size)
+static jsonpg_generator print_generator(write_fn write, void *write_ctx, int pretty, int stack_size)
 {
         jsonpg_generator g = jsonpg_generator_new(
                         &printer_callbacks, 
@@ -325,7 +325,7 @@ jsonpg_generator print_generator(write_fn write, void *write_ctx, int pretty, in
         return g;
 }
 
-int write_fd(void *ctx, uint8_t *bytes, size_t count)
+static int write_fd(void *ctx, uint8_t *bytes, size_t count)
 {
         int fd = CTX_TO_INT(ctx);
         uint8_t *start = bytes;
@@ -364,6 +364,20 @@ jsonpg_generator jsonpg_buffer_printer(str_buf sbuf, int pretty, int stack_size)
 }
 
 
+str_buf jsonpg_buffer_new(uint32_t size)
+{
+        return str_buf_new(size);
+}
+
+char *jsonpg_buffer_string(str_buf sbuf)
+{
+        return str_buf_content_str(sbuf);
+}
+
+void jsonpg_buffer_free(void *p)
+{
+        str_buf_free(p);
+}
 
 
 

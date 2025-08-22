@@ -98,6 +98,7 @@ struct jsonpg_reader_s {
 typedef struct jsonpg_parser_s *jsonpg_parser;
 typedef struct jsonpg_generator_s *jsonpg_generator;
 typedef struct dom_hdr_s *jsonpg_dom;
+typedef struct str_buf_s *jsonpg_buffer;
 
 
 void jsonpg_set_allocators(
@@ -108,8 +109,8 @@ void jsonpg_set_allocators(
 jsonpg_config jsonpg_config_get();
 void jsonpg_config_set(jsonpg_config *);
 
-jsonpg_parser jsonpg_parser_new(/* nullable */ jsonpg_config *);
-void jsonpg_parser_free(jsonpg_parser);
+jsonpg_parser jsonpg_parser_new(jsonpg_config *);
+void jsonpg_parser_free(void *);
 
 jsonpg_type jsonpg_parse(
                 jsonpg_parser, 
@@ -139,10 +140,26 @@ jsonpg_type jsonpg_parse_reader(
 
 jsonpg_type jsonpg_parse_next(jsonpg_parser);
 
-jsonpg_value jsonpg_parse_result(jsonpg_parser);
+jsonpg_value jsonpg_result(jsonpg_parser);
 
 jsonpg_dom jsonpg_dom_new();
-void jsonpg_dom_free(jsonpg_dom);
 jsonpg_generator jsonpg_dom_generator(jsonpg_dom);
 jsonpg_type jsonpg_dom_parse(jsonpg_dom, jsonpg_generator);
+void jsonpg_dom_free(void *);
+
+jsonpg_generator jsonpg_generator_new(jsonpg_callbacks *, size_t, uint16_t);
+void jsonpg_generator_free(void *);
+
+jsonpg_generator jsonpg_file_printer(int, int, int);
+jsonpg_generator jsonpg_stream_printer(FILE *, int, int);
+jsonpg_generator jsonpg_buffer_printer(jsonpg_buffer, int, int);
+
+jsonpg_buffer jsonpg_buffer_new(uint32_t);
+char *jsonpg_buffer_string(jsonpg_buffer);
+void jsonpg_buffer_free(void *);
+
+jsonpg_reader jsonpg_file_reader(int);
+void jsonpg_reader_free(void *);
+
+
 

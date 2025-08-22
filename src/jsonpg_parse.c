@@ -292,11 +292,11 @@ jsonpg_parser jsonpg_parser_new(jsonpg_config *config)
         size_t struct_bytes = sizeof(struct jsonpg_parser_s);
         // 1-8 => 1, 9-16 => 2, etc
         size_t stack_bytes = (c.stack_size + 7) / 8;
-        jsonpg_parser p = jsonpg_alloc(struct_bytes + stack_bytes);
+        jsonpg_parser p = pg_alloc(struct_bytes + stack_bytes);
         if(p) {
                 p->write_buf = str_buf_empty();
                 if(!p->write_buf) {
-                        jsonpg_dealloc(p);
+                        pg_dealloc(p);
                         return NULL;
                 }
                 p->reader = NULL;
@@ -321,14 +321,14 @@ jsonpg_parser jsonpg_parser_new(jsonpg_config *config)
         return p;
 }
 
-void jsonpg_parser_free(jsonpg_parser p) 
+void jsonpg_parser_free(void *ptr) 
 {
-        if(p) {
+        if(ptr) {
+                jsonpg_parser p = ptr;
                 if(p->input_is_ours)
-                        jsonpg_dealloc(p->input);
-                jsonpg_dealloc(p->reader);
+                        pg_dealloc(p->input);
                 str_buf_free(p->write_buf);
-                jsonpg_dealloc(p);
+                pg_dealloc(p);
         }
 }
 
@@ -352,12 +352,12 @@ jsonpg_type jsonpg_parse(
                 jsonpg_generator g)
 {
         if(p->reader) {
-                jsonpg_dealloc(p->reader);
+                pg_dealloc(p->reader);
                 p->reader = NULL;
         }
         p->write_buf = str_buf_reset(p->write_buf);
         if(p->input_is_ours)
-                jsonpg_dealloc(p->input);
+                pg_dealloc(p->input);
 
         p->input = p->current = json;
         p->input_size = length;
@@ -390,7 +390,7 @@ jsonpg_type jsonpg_parse_reader(
                 jsonpg_generator g)
 {
         if(!(p->input_is_ours && p->input)) {
-                p->input = jsonpg_alloc(JSONPG_BUF_SIZE);
+                p->input = pg_alloc(JSONPG_BUF_SIZE);
                 if(!p->input)
                         return alloc_error(p);
                 p->input_size = JSONPG_BUF_SIZE;
@@ -416,13 +416,18 @@ jsonpg_type jsonpg_parse_reader(
 
 jsonpg_reader jsonpg_file_reader(int fd)
 {
-        jsonpg_reader r = jsonpg_alloc(sizeof(struct jsonpg_reader_s));
+        jsonpg_reader r = pg_alloc(sizeof(struct jsonpg_reader_s));
         if(!r)
                 return NULL;
         r->read = read_fd;
         r->ctx = INT_TO_CTX(fd);
 
         return r;
+}
+
+void jsonpg_reader_free(void *p)
+{
+        pg_dealloc(p);
 }
 
 jsonpg_type jsonpg_parse_fd(
