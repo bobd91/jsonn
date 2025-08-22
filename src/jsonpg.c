@@ -1,4 +1,5 @@
 #include "jsonpg.h"
+#include "jsonpg_stack.h"
 #include "jsonpg_parse.h"
 #include "jsonpg_generate.h"
 #include "jsonpg_ctx.h"
@@ -9,6 +10,7 @@
 #include "jsonpg_strbuf.c"
 #include "jsonpg_utf8.c"
 #include "jsonpg_config.c"
+#include "jsonpg_stack.c"
 #include "jsonpg_generate.c"
 #include "jsonpg_print.c"
 #include "jsonpg_error.c"

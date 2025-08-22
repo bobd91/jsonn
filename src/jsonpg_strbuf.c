@@ -106,7 +106,17 @@ static size_t str_buf_content(str_buf sbuf, uint8_t **bytes)
                 return 0;
         }
 }
-
+//
+// static char *str_buf_content_str(str_buf sbuf)
+// {
+//         if(sbuf->count) {
+//                 if(sbuf->bytes[sbuf->count])
+//                         str_buf_append_c(sbuf, '\0');
+//                 return (char *)sbuf->bytes;
+//         }
+//         return "";
+// }
+//
 
 
 

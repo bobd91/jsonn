@@ -7,14 +7,14 @@ static void dump_p(jsonpg_parser p)
         fprintf(stderr, "At Position: %ld\n", p->result.error.at);
         fprintf(stderr, "Input Length: %ld\n", p->last - p->input);
         fprintf(stderr, "Input Processed: %ld\n", p->current - p->input);
-        fprintf(stderr, "Stack Size: %d\n", p->stack_size);
-        fprintf(stderr, "Stack Pointer: %d\n", p->stack_ptr);
+        fprintf(stderr, "Stack Size: %d\n", p->stack.size);
+        fprintf(stderr, "Stack Pointer: %d\n", p->stack.ptr);
         fprintf(stderr, "Stack: ");
-        for(int i = 0 ; i < p->stack_ptr ; i++) {
+        for(int i = 0 ; i < p->stack.ptr ; i++) {
                 int offset = i >> 3;
                 int mask = 1 << (i & 0x07);
                 fprintf(stderr, "%c", 
-                                (mask & p->stack[offset]) ? '[' : '{');
+                                (mask & p->stack.stack[offset]) ? '[' : '{');
         }
         fprintf(stderr, "\n");
 

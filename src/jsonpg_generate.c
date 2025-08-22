@@ -2,53 +2,130 @@
 
 static jsonpg_generator jsonpg_generator_new(
                 jsonpg_callbacks *callbacks, 
-                size_t ctx_size)
+                size_t ctx_size,
+                uint16_t stack_size)
 {
-        jsonpg_generator g = jsonpg_alloc(sizeof(struct jsonpg_generator_s) + ctx_size);
+        jsonpg_generator g = jsonpg_alloc(sizeof(struct jsonpg_generator_s)
+                        + ctx_size
+                        + (stack_size >> 3));
         if(!g)
                 return NULL;
         g->callbacks = callbacks;
         g->ctx = ((void *)g) + sizeof(struct jsonpg_generator_s);
 
+        g->key_next = 0;
+
+        g->stack = (struct stack_s) {
+                .ptr = 0,
+                .ptr_min = 0,
+                .size = stack_size,
+                .stack = g->ctx + ctx_size
+        };
+
         return g;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
+// #pragma GCC diagnostic push
+// #pragma GCC diagnostic ignored "-Wunused-function"
 static void jsonpg_generator_free(jsonpg_generator g)
 {
         jsonpg_dealloc(g);
 }
-#pragma GCC diagnostic pop
+// #pragma GCC diagnostic pop
+
+static int can_value(jsonpg_generator g)
+{
+        if(g->stack.size
+                        && peek_stack(&g->stack) == STACK_OBJECT
+                        && g->key_next) {
+                g->error = GENERATOR_EXPECTED_KEY;
+                return 1;
+        }
+        return 0;
+
+}
+
+static int can_key(jsonpg_generator g)
+{
+        if(g->stack.size && !g->key_next) {
+                g->error = GENERATOR_EXPECTED_VALUE;
+                return 1;
+        }
+        g->key_next = 0;
+        return 0;
+}
+
+static int can_push(jsonpg_generator g, int type)
+{
+        if(can_value(g))
+                return 1;
+        if(g->stack.size) {
+                if(-1 == push_stack(&g->stack, type)) {
+                        g->error = GENERATOR_STACK_OVERFLOW;
+                        return 1;
+                }
+                g->key_next = type == STACK_OBJECT;
+        }
+        return 0;
+        
+}
+
+static int can_pop(jsonpg_generator g, int type)
+{
+        int cur_type;
+        if(g->stack.size) {
+                cur_type = peek_stack(&g->stack);
+                if(cur_type == -1) {
+                        g->error = GENERATOR_STACK_UNDERFLOW;
+                        return 1;
+                } else if(type != cur_type) {
+                        g->error = type == STACK_OBJECT
+                                ? GENERATOR_NO_OBJECT
+                                : GENERATOR_NO_ARRAY;
+                        return 1;
+                } else if(type == STACK_OBJECT && !g->key_next) {
+                        g->error = GENERATOR_EXPECTED_VALUE;
+                        return 1;
+                }
+                pop_stack(&g->stack);
+                g->key_next = STACK_OBJECT == peek_stack(&g->stack);
+        }
+        return 0;
+}
 
 static int jsonpg_null(jsonpg_generator g)
 {
-        return g->callbacks->null 
-                && g->callbacks->null(g->ctx);
+        return  can_value(g)
+                || (g->callbacks->null 
+                        && g->callbacks->null(g->ctx));
 }
 
 static int jsonpg_boolean(jsonpg_generator g, int is_true)
 {
-        return g->callbacks->boolean 
-                && g->callbacks->boolean(g->ctx, is_true);
+        return  can_value(g)
+                || (g->callbacks->boolean 
+                        && g->callbacks->boolean(g->ctx, is_true));
 }
 
 static int jsonpg_integer(jsonpg_generator g, int64_t integer)
 {
-        return g->callbacks->integer
-                && g->callbacks->integer(g->ctx, integer);
+        return  can_value(g)
+                || (g->callbacks->integer
+                        && g->callbacks->integer(g->ctx, integer));
 }
 
 static int jsonpg_real(jsonpg_generator g, double real)
 {
-        return g->callbacks->real 
-                && g->callbacks->real(g->ctx, real);
+        return  can_value(g)
+                || (g->callbacks->real 
+                        && g->callbacks->real(g->ctx, real));
 }
 
 static int jsonpg_string(jsonpg_generator g, uint8_t *bytes, size_t count)
 {
-        return g->callbacks->string
-                && g->callbacks->string(g->ctx, bytes, count);
+        return can_value(g)
+                || (g->callbacks->string
+                        && g->callbacks->string(g->ctx, bytes, count));
 }
 
 #pragma GCC diagnostic push
@@ -61,8 +138,9 @@ static int jsonpg_cstr(jsonpg_generator g, char *cstr)
 
 static int jsonpg_key(jsonpg_generator g, uint8_t *bytes, size_t count)
 {
-        return g->callbacks->key
-                && g->callbacks->key(g->ctx, bytes, count);
+        return can_key(g)
+                || (g->callbacks->key
+                        && g->callbacks->key(g->ctx, bytes, count));
 }
 
 #pragma GCC diagnostic push
@@ -75,26 +153,30 @@ static int jsonpg_ckey(jsonpg_generator g, char *ckey)
 
 static int jsonpg_begin_array(jsonpg_generator g)
 {
-        return g->callbacks->begin_array 
-                && g->callbacks->begin_array(g->ctx);
+        return  can_push(g, STACK_ARRAY)
+                || (g->callbacks->begin_array 
+                        && g->callbacks->begin_array(g->ctx));
 }
 
 static int jsonpg_end_array(jsonpg_generator g)
 {
-        return g->callbacks->end_array 
-                && g->callbacks->end_array(g->ctx);
+        return  can_pop(g, STACK_ARRAY)
+                || (g->callbacks->end_array 
+                        && g->callbacks->end_array(g->ctx));
 }
 
 static int jsonpg_begin_object(jsonpg_generator g)
 {
-        return g->callbacks->begin_object 
-                && g->callbacks->begin_object(g->ctx);
+        return can_push(g, STACK_OBJECT)
+                || (g->callbacks->begin_object 
+                        && g->callbacks->begin_object(g->ctx));
 }
 
 static int jsonpg_end_object(jsonpg_generator g)
 {
-        return g->callbacks->end_object 
-                && g->callbacks->end_object(g->ctx);
+        return  can_pop(g, STACK_OBJECT)
+                || (g->callbacks->end_object 
+                        && g->callbacks->end_object(g->ctx));
 }
 
 static int jsonpg_error(jsonpg_generator g, int code, int at)

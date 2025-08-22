@@ -19,8 +19,8 @@
 #define end_object()            end_object(p)
 #define begin_array()           begin_array(p)
 #define end_array()             end_array(p)
-#define in_object()             (peek_stack(p) == STACK_OBJECT)
-#define in_array()              (peek_stack(p) == STACK_ARRAY)
+#define in_object()             (peek_stack(&p->stack) == STACK_OBJECT)
+#define in_array()              (peek_stack(&p->stack) == STACK_ARRAY)
 #define accept_integer(X)       accept_integer(p, (X))
 #define accept_real(X)          accept_real(p, (X))
 #define accept_string(X)        accept_string(p, (X))
@@ -137,7 +137,7 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
                                         states[p->state],
                                         states[p->push_state],
                                         p->token_ptr,
-                                        p->stack_ptr);
+                                        p->stack.ptr);
 
                         // no whitespace after number leaves it dangling
                         if(p->state == state_zero_integer
@@ -154,7 +154,7 @@ jsonpg_type jsonpg_parse_next(jsonpg_parser p) {
 
                         return (p->push_state == state_error
                                         && p->token_ptr == 0 
-                                        && p->stack_ptr == p->stack_ptr_min)
+                                        && p->stack.ptr == p->stack.ptr_min)
                                ? JSONPG_EOF
                                : parse_error(p);
                 } else if(-1 == parser_read_next(p)) {

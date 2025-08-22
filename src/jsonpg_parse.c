@@ -3,9 +3,6 @@
 
 // TODO function naming is a mess!
 
-#define STACK_OBJECT    0
-#define STACK_ARRAY     1
-
 #define TOKEN_INFO_DEFAULT      0x00
 #define TOKEN_INFO_IS_STRING    0x01
 #define TOKEN_INFO_HAS_QUOTE    0x03 // implies _IS_STRING
@@ -77,64 +74,30 @@ static token pop_token(jsonpg_parser p)
         
         return &p->tokens[--p->token_ptr];
 }
-
-static int peek_stack(jsonpg_parser p)
-{
-        if(p->stack_ptr == 0)
-                return -1;
-        uint16_t sp = p->stack_ptr - 1;
-        return 0x01 & p->stack[sp >> 3] >> (sp & 0x07);
-}
-
-static int pop_stack(jsonpg_parser p) 
-{
-        if(p->stack_ptr == p->stack_ptr_min)
-                return -1;
-        --p->stack_ptr;
-
-        return 0;
-}
-
-static int push_stack(jsonpg_parser p, int type) 
-{
-        uint16_t sp = p->stack_ptr;
-        if(sp >= p->stack_size) 
-                return -1;
-        int offset = sp >> 3;
-        int mask = 1 << (sp & 0x07);
-        
-        if(type == STACK_ARRAY)
-                p->stack[offset] |= mask;
-        else 
-                p->stack[offset] &= ~mask;
-        p->stack_ptr++;
-        return 0;
-}
-
 static jsonpg_type begin_object(jsonpg_parser p)
 {
-        return(0 == push_stack(p, STACK_OBJECT))
+        return(0 == push_stack(&p->stack, STACK_OBJECT))
                 ? JSONPG_BEGIN_OBJECT
                 : set_result_error(p, JSONPG_ERROR_STACKOVERFLOW);
 }
 
 static jsonpg_type end_object(jsonpg_parser p)
 {
-        return (0 == pop_stack(p))
+        return (0 == pop_stack(&p->stack))
                 ? JSONPG_END_OBJECT
                 : set_result_error(p, JSONPG_ERROR_STACKUNDERFLOW);
 }
 
 static jsonpg_type begin_array(jsonpg_parser p)
 {
-        return(0 == push_stack(p, STACK_ARRAY))
+        return(0 == push_stack(&p->stack, STACK_ARRAY))
                 ? JSONPG_BEGIN_ARRAY
                 : set_result_error(p, JSONPG_ERROR_STACKOVERFLOW);
 }
 
 static jsonpg_type end_array(jsonpg_parser p)
 {
-        return (0 == pop_stack(p))
+        return (0 == pop_stack(&p->stack))
                 ? JSONPG_END_ARRAY
                 : set_result_error(p, JSONPG_ERROR_STACKUNDERFLOW);
 }
@@ -339,20 +302,20 @@ jsonpg_parser jsonpg_parser_new(jsonpg_config *config)
                 p->reader = NULL;
                 p->input = NULL;
                 p->input_is_ours = 0;
-                p->stack_size = c.stack_size;
-                p->stack = (uint8_t *)(((void *)p) + struct_bytes);
+                p->stack.size = c.stack_size;
+                p->stack.stack = (uint8_t *)(((void *)p) + struct_bytes);
                 p->flags = c.flags;
 
                 if(c.flags & JSONPG_FLAG_IS_OBJECT) {
-                        p->stack_ptr = 0;
-                        push_stack(p, STACK_OBJECT);
-                        p->stack_ptr_min = 1;
+                        p->stack.ptr = 0;
+                        push_stack(&p->stack, STACK_OBJECT);
+                        p->stack.ptr_min = 1;
                 } else if(c.flags & JSONPG_FLAG_IS_ARRAY) {
-                        p->stack_ptr = 0;
-                        push_stack(p, STACK_ARRAY);
-                        p->stack_ptr_min = 1;
+                        p->stack.ptr = 0;
+                        push_stack(&p->stack, STACK_ARRAY);
+                        p->stack.ptr_min = 1;
                 } else {
-                        p->stack_ptr_min = 0;
+                        p->stack.ptr_min = 0;
                 }
         }
         return p;
@@ -401,7 +364,7 @@ jsonpg_type jsonpg_parse(
         p->input_is_ours = 0;
         p->last = json + length;
         p->seen_eof = 1;
-        p->stack_ptr = p->stack_ptr_min;
+        p->stack.ptr = p->stack.ptr_min;
         p->token_ptr = 0;
         p->state = JSONPG_STATE_INITIAL;
 
@@ -439,7 +402,7 @@ jsonpg_type jsonpg_parse_reader(
         if(l < 0)
                 return file_read_error(p);
         p->seen_eof = (0 == l);
-        p->stack_ptr = p->stack_ptr_min;
+        p->stack.ptr = p->stack.ptr_min;
         p->token_ptr = 0;
         p->state = JSONPG_STATE_INITIAL;
 

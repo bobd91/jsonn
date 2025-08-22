@@ -303,11 +303,12 @@ static jsonpg_callbacks printer_callbacks = {
         .error = print_error
 };
 
-jsonpg_generator print_generator(write_fn write, void *write_ctx, int pretty)
+jsonpg_generator print_generator(write_fn write, void *write_ctx, int pretty, int stack_size)
 {
         jsonpg_generator g = jsonpg_generator_new(
                         &printer_callbacks, 
-                        sizeof(struct jsonpg_print_ctx_s));
+                        sizeof(struct jsonpg_print_ctx_s),
+                        stack_size);
         if(!g)
                 return NULL;
 
@@ -341,14 +342,14 @@ int write_fd(void *ctx, uint8_t *bytes, size_t count)
         return 0;
 }
 
-jsonpg_generator jsonpg_file_printer(int fd, int pretty)
+jsonpg_generator jsonpg_file_printer(int fd, int pretty, int stack_size)
 {
-        return print_generator(write_fd, INT_TO_CTX(fd), pretty);
+        return print_generator(write_fd, INT_TO_CTX(fd), pretty, stack_size);
 }
 
-jsonpg_generator jsonpg_stream_printer(FILE *stream, int pretty)
+jsonpg_generator jsonpg_stream_printer(FILE *stream, int pretty, int stack_size)
 {
-        return jsonpg_file_printer(fileno(stream), pretty);
+        return jsonpg_file_printer(fileno(stream), pretty, stack_size);
 }
 
 int write_buffer(void *ctx, uint8_t *bytes, size_t count)
@@ -357,9 +358,9 @@ int write_buffer(void *ctx, uint8_t *bytes, size_t count)
         return str_buf_append(sbuf, bytes, count);
 }
 
-jsonpg_generator jsonpg_buffer_printer(str_buf sbuf, int pretty)
+jsonpg_generator jsonpg_buffer_printer(str_buf sbuf, int pretty, int stack_size)
 {
-        return print_generator(write_buffer, sbuf, pretty);
+        return print_generator(write_buffer, sbuf, pretty, stack_size);
 }
 
 

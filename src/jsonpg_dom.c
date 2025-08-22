@@ -235,7 +235,7 @@ jsonpg_generator jsonpg_dom_generator(jsonpg_dom dom)
         if(!dom)
                 return NULL;
 
-        jsonpg_generator g = jsonpg_generator_new(&dom_callbacks, 0);
+        jsonpg_generator g = jsonpg_generator_new(&dom_callbacks, 0, 0);
         if(g)
                 g->ctx = dom;
         return g;

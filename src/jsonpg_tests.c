@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
                                 printf("DOM Parse res: %d\n", res);
                                 exit(1);
                         }
-                        g = jsonpg_stream_printer(stdout, 1);
+                        g = jsonpg_stream_printer(stdout, 1, 0);
                         res = jsonpg_dom_parse(dom, g);
                 } else if(0 == strcmp("-t", argv[1])) {
                                 errno = 0;
@@ -128,8 +128,8 @@ int main(int argc, char *argv[])
                         printf("DOM Parse res: %d\n", res);
                         exit(1);
                 }
-                //g = jsonpg_stream_printer(stdout, 1);
-                //res = jsonpg_dom_parse(dom, g);
+                g = jsonpg_stream_printer(stdout, 1, 0);
+                res = jsonpg_dom_parse(dom, g);
         }
 
         // uint8_t *bytes = (uint8_t *)"";
