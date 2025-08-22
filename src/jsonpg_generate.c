@@ -30,7 +30,7 @@ void jsonpg_generator_free(void *p)
         pg_dealloc(p);
 }
 
-static int can_value(jsonpg_generator g)
+static int cannot_value(jsonpg_generator g)
 {
         if(g->stack.size
                         && peek_stack(&g->stack) == STACK_OBJECT
@@ -42,7 +42,7 @@ static int can_value(jsonpg_generator g)
 
 }
 
-static int can_key(jsonpg_generator g)
+static int cannot_key(jsonpg_generator g)
 {
         if(g->stack.size && !g->key_next) {
                 g->error = GENERATOR_EXPECTED_VALUE;
@@ -52,9 +52,9 @@ static int can_key(jsonpg_generator g)
         return 0;
 }
 
-static int can_push(jsonpg_generator g, int type)
+static int cannot_push(jsonpg_generator g, int type)
 {
-        if(can_value(g))
+        if(cannot_value(g))
                 return 1;
         if(g->stack.size) {
                 if(-1 == push_stack(&g->stack, type)) {
@@ -67,7 +67,7 @@ static int can_push(jsonpg_generator g, int type)
         
 }
 
-static int can_pop(jsonpg_generator g, int type)
+static int cannot_pop(jsonpg_generator g, int type)
 {
         int cur_type;
         if(g->stack.size) {
@@ -90,77 +90,77 @@ static int can_pop(jsonpg_generator g, int type)
         return 0;
 }
 
-static int generate_null(jsonpg_generator g)
+int jsonpg_null(jsonpg_generator g)
 {
-        return  can_value(g)
+        return  cannot_value(g)
                 || (g->callbacks->null 
                         && g->callbacks->null(g->ctx));
 }
 
-static int generate_boolean(jsonpg_generator g, int is_true)
+int jsonpg_boolean(jsonpg_generator g, int is_true)
 {
-        return  can_value(g)
+        return  cannot_value(g)
                 || (g->callbacks->boolean 
                         && g->callbacks->boolean(g->ctx, is_true));
 }
 
-static int generate_integer(jsonpg_generator g, int64_t integer)
+int jsonpg_integer(jsonpg_generator g, int64_t integer)
 {
-        return  can_value(g)
+        return  cannot_value(g)
                 || (g->callbacks->integer
                         && g->callbacks->integer(g->ctx, integer));
 }
 
-static int generate_real(jsonpg_generator g, double real)
+int jsonpg_real(jsonpg_generator g, double real)
 {
-        return  can_value(g)
+        return  cannot_value(g)
                 || (g->callbacks->real 
                         && g->callbacks->real(g->ctx, real));
 }
 
-static int generate_string(jsonpg_generator g, uint8_t *bytes, size_t count)
+int jsonpg_string(jsonpg_generator g, uint8_t *bytes, size_t count)
 {
-        return can_value(g)
+        return cannot_value(g)
                 || (g->callbacks->string
                         && g->callbacks->string(g->ctx, bytes, count));
 }
 
-static int generate_key(jsonpg_generator g, uint8_t *bytes, size_t count)
+int jsonpg_key(jsonpg_generator g, uint8_t *bytes, size_t count)
 {
-        return can_key(g)
+        return cannot_key(g)
                 || (g->callbacks->key
                         && g->callbacks->key(g->ctx, bytes, count));
 }
 
-static int generate_begin_array(jsonpg_generator g)
+int jsonpg_begin_array(jsonpg_generator g)
 {
-        return  can_push(g, STACK_ARRAY)
+        return  cannot_push(g, STACK_ARRAY)
                 || (g->callbacks->begin_array 
                         && g->callbacks->begin_array(g->ctx));
 }
 
-static int generate_end_array(jsonpg_generator g)
+int jsonpg_end_array(jsonpg_generator g)
 {
-        return  can_pop(g, STACK_ARRAY)
+        return  cannot_pop(g, STACK_ARRAY)
                 || (g->callbacks->end_array 
                         && g->callbacks->end_array(g->ctx));
 }
 
-static int generate_begin_object(jsonpg_generator g)
+int jsonpg_begin_object(jsonpg_generator g)
 {
-        return can_push(g, STACK_OBJECT)
+        return cannot_push(g, STACK_OBJECT)
                 || (g->callbacks->begin_object 
                         && g->callbacks->begin_object(g->ctx));
 }
 
-static int generate_end_object(jsonpg_generator g)
+int jsonpg_end_object(jsonpg_generator g)
 {
-        return  can_pop(g, STACK_OBJECT)
+        return  cannot_pop(g, STACK_OBJECT)
                 || (g->callbacks->end_object 
                         && g->callbacks->end_object(g->ctx));
 }
 
-static int generate_error(jsonpg_generator g, int code, int at)
+static int gen_error(jsonpg_generator g, int code, int at)
 {
         (void)(g->callbacks->error 
                 && g->callbacks->error(g->ctx, code, at));
@@ -171,28 +171,28 @@ static int generate(jsonpg_generator g, jsonpg_type type, jsonpg_value *value)
 {
         switch(type) { 
         case JSONPG_NULL:
-                return generate_null(g);     
+                return jsonpg_null(g);     
         case JSONPG_FALSE:
         case JSONPG_TRUE:
-                return generate_boolean(g, JSONPG_TRUE == type);
+                return jsonpg_boolean(g, JSONPG_TRUE == type);
         case JSONPG_INTEGER:
-                return generate_integer(g, value->number.integer);
+                return jsonpg_integer(g, value->number.integer);
         case JSONPG_REAL:
-                return generate_real(g, value->number.real);
+                return jsonpg_real(g, value->number.real);
         case JSONPG_STRING:
-                return generate_string(g, value->string.bytes, value->string.length);
+                return jsonpg_string(g, value->string.bytes, value->string.length);
         case JSONPG_KEY:
-                return generate_key(g, value->string.bytes, value->string.length);
+                return jsonpg_key(g, value->string.bytes, value->string.length);
         case JSONPG_BEGIN_ARRAY:
-                return generate_begin_array(g);
+                return jsonpg_begin_array(g);
         case JSONPG_END_ARRAY:
-                return generate_end_array(g);
+                return jsonpg_end_array(g);
         case JSONPG_BEGIN_OBJECT:
-                return generate_begin_object(g);
+                return jsonpg_begin_object(g);
         case JSONPG_END_OBJECT:
-                return generate_end_object(g);
+                return jsonpg_end_object(g);
         case JSONPG_ERROR:
-                return generate_error(g, value->error.code, value->error.at);
+                return gen_error(g, value->error.code, value->error.at);
         default:
                 assert(!type && 0);
                 return 1;

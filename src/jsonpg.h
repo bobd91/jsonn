@@ -161,5 +161,15 @@ void jsonpg_buffer_free(void *);
 jsonpg_reader jsonpg_file_reader(int);
 void jsonpg_reader_free(void *);
 
-
+int jsonpg_null(jsonpg_generator);
+int jsonpg_boolean(jsonpg_generator, int);
+int jsonpg_integer(jsonpg_generator, long);
+int jsonpg_real(jsonpg_generator, double);
+int jsonpg_string(jsonpg_generator, char *);
+int jsonpg_key(jsonpg_generator, char *);
+int jsonpg_bytes(jsonpg_generator, uint8_t *, size_t);
+int jsonpg_begin_array(jsonpg_generator);
+int jsonpg_end_array(jsonpg_generator);
+int jsonpg_begin_object(jsonpg_generator);
+int jsonpg_end_object(jsonpg_generator);
 
